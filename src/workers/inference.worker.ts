@@ -17,6 +17,11 @@ import { detectPhases } from "@/lib/phases/phaseDetector";
 
 let cancelled = false;
 
+// MediaPipe VIDEO mode requires strictly increasing timestamps across the entire
+// lifetime of the landmarker singleton — not just within a single video.
+// We keep a global counter so that each new video continues from where the last left off.
+let globalLastTimestampMs = -1;
+
 // ─── Main message handler ────────────────────────────────────────────────────
 
 self.onmessage = async (event: MessageEvent) => {
@@ -87,7 +92,6 @@ async function handleProcessVideo(
     // ── Run inference on each frame ─────────────────────────────────────────
     const poseFrames: PoseFrame[] = [];
     const startTime = Date.now();
-    let lastTimestampMs = -1;
 
     for (let i = 0; i < frames.length; i++) {
       if (cancelled) return;
@@ -96,10 +100,12 @@ async function handleProcessVideo(
       ctx.drawImage(bitmap, 0, 0, frameWidth, frameHeight);
       const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
 
-      // MediaPipe VIDEO mode requires strictly increasing timestamps
+      // MediaPipe VIDEO mode requires strictly increasing timestamps across the
+      // entire landmarker lifetime (singleton). Advance the global counter so
+      // a second video never re-uses a timestamp the model has already seen.
       const rawTs = Math.round((i / frames.length) * durationMs);
-      const timestampMs = Math.max(lastTimestampMs + 1, rawTs);
-      lastTimestampMs = timestampMs;
+      const timestampMs = Math.max(globalLastTimestampMs + 1, rawTs);
+      globalLastTimestampMs = timestampMs;
 
       const result = landmarker.detectForVideo(imageData, timestampMs);
       const poseFrame = mediapipeResultToPoseFrame(result, i, timestampMs, frameWidth, frameHeight);
