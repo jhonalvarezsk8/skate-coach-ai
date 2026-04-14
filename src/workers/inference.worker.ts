@@ -108,7 +108,9 @@ async function handleProcessVideo(
       globalLastTimestampMs = timestampMs;
 
       const result = landmarker.detectForVideo(imageData, timestampMs);
-      const poseFrame = mediapipeResultToPoseFrame(result, i, timestampMs, frameWidth, frameHeight);
+      // Store rawTs (video-relative) in the PoseFrame so the UI scrubber stays
+      // in sync. timestampMs is only for MediaPipe's internal tracking.
+      const poseFrame = mediapipeResultToPoseFrame(result, i, rawTs, frameWidth, frameHeight);
       poseFrames.push(poseFrame);
 
       // Report progress every 5 frames
