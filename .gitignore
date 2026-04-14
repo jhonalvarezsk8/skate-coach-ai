@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Claude Code session data
+.claude/
+
+# ── Large binary assets (generated/downloaded — see CLAUDE.md setup steps) ──
+
+# MediaPipe WASM + JS bundle (copied from node_modules by CopyPlugin at build time)
+public/js/
+public/wasm/
+
+# Old ONNX model (replaced by MediaPipe)
+public/models/yolov8n-pose.onnx
+
+# Raw input video (user-specific, not part of the project)
+Flip.mp4
+
+# OS
+.DS_Store
+Thumbs.db
