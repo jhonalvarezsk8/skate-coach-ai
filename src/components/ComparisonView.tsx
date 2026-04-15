@@ -519,9 +519,10 @@ export default function ComparisonView({
           </button>
         </div>
 
-        {/* Hidden reference video */}
+        {/* Reference video — visually hidden but NOT display:none so browsers load it */}
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <video ref={refVideoRef} src="/reference/ollie-reference.mp4" preload="auto" muted playsInline className="hidden" />
+        <video ref={refVideoRef} src="/reference/ollie-reference.mp4" preload="auto" muted playsInline
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", top: -9999 }} />
       </div>
     );
   }
