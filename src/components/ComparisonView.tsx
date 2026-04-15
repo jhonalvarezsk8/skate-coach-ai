@@ -294,11 +294,23 @@ export default function ComparisonView({
     if (!video) return;
     let cancelled = false;
     const extract = async () => {
+      // Force load — iOS ignores preload="auto"
+      video.load();
+
       if (video.readyState < 1) {
         await new Promise<void>(resolve => {
           video.addEventListener("loadedmetadata", () => resolve(), { once: true });
         });
       }
+      if (cancelled) return;
+
+      // iOS requires play() before currentTime seeks work (muted videos are allowed without gesture)
+      try {
+        await video.play();
+        video.pause();
+        video.currentTime = 0;
+      } catch (_) { /* desktop/Android don't need this, ignore errors */ }
+
       if (cancelled) return;
       const totalFrames = referenceData.totalFrames;
       const duration    = video.duration;
@@ -312,8 +324,12 @@ export default function ComparisonView({
         if (cancelled) return;
         const t = ((i + 0.5) / totalFrames) * duration;
         await new Promise<void>(resolve => {
-          video.addEventListener("seeked", () => resolve(), { once: true });
+          let done = false;
+          const finish = () => { if (!done) { done = true; resolve(); } };
+          video.addEventListener("seeked", finish, { once: true });
           video.currentTime = t;
+          // Safety timeout: if seeked never fires (some mobile browsers), continue after 800ms
+          setTimeout(finish, 800);
         });
         if (cancelled) return;
         ctx.drawImage(video, 0, 0, extractW, extractH);
