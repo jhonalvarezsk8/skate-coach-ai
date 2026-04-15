@@ -27,7 +27,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 INPUT_VIDEO  = PROJECT_ROOT / "Flip.mp4"
 OUTPUT_JSON  = PROJECT_ROOT / "public" / "reference" / "ollie-reference-kps.json"
 OUTPUT_VIDEO = PROJECT_ROOT / "public" / "reference" / "ollie-reference.mp4"
-MODEL_PATH   = PROJECT_ROOT / "public" / "models" / "pose_landmarker_lite.task"
+MODEL_PATH   = PROJECT_ROOT / "public" / "models" / "pose_landmarker_full.task"
 
 # ── Thresholds (mesmos do phaseDetector.ts) ───────────────────────────────────
 KNEE_BEND_DEGREES    = 160
@@ -207,7 +207,7 @@ def main():
 
     if not MODEL_PATH.exists():
         print(f"❌ Modelo MediaPipe não encontrado: {MODEL_PATH}")
-        print("   Execute: curl -L https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task -o public/models/pose_landmarker_lite.task")
+        print("   Execute: curl -L https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task -o public/models/pose_landmarker_full.task")
         sys.exit(1)
 
     try:
@@ -220,7 +220,7 @@ def main():
 
     OUTPUT_JSON.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"📹 Carregando vídeo: {INPUT_VIDEO}")
+    print(f"[VIDEO] Carregando video: {INPUT_VIDEO}")
 
     # ── Configurar MediaPipe PoseLandmarker ───────────────────────────────────
     base_options = mp.tasks.BaseOptions(model_asset_path=str(MODEL_PATH))
@@ -228,9 +228,9 @@ def main():
         base_options=base_options,
         running_mode=mp.tasks.vision.RunningMode.VIDEO,
         num_poses=1,
-        min_pose_detection_confidence=0.5,
-        min_pose_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
+        min_pose_detection_confidence=0.3,
+        min_pose_presence_confidence=0.3,
+        min_tracking_confidence=0.3,
     )
     detector = mp.tasks.vision.PoseLandmarker.create_from_options(options)
 
@@ -241,7 +241,7 @@ def main():
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     print(f"   {frame_width}×{frame_height} @ {fps:.1f}fps — {total_frames} frames")
-    print("🤸 Detectando poses com MediaPipe BlazePose (33 keypoints)...")
+    print("Detectando poses com MediaPipe BlazePose (33 keypoints)...")
 
     frames_data = []
     frame_idx   = 0
@@ -281,14 +281,14 @@ def main():
 
     cap.release()
     detector.close()
-    print(f"\n✅ {frame_idx} frames processados")
+    print(f"\n[OK] {frame_idx} frames processados")
 
     # Detect phases
-    print("🔍 Detectando fases do Ollie...")
+    print("Detectando fases do Ollie...")
     phases = detect_phases(frames_data, frame_height)
     print(f"   Setup: {phases['setup']}  Pop: {phases['pop']}  Flick: {phases['flick']}  Catch: {phases['catch']}  Landing: {phases['landing']}")
     if phases.get("usedFallback"):
-        print("   ⚠️  Fallback temporal utilizado — thresholds podem precisar de ajuste")
+        print("   [AVISO] Fallback temporal utilizado -- thresholds podem precisar de ajuste")
 
     # Build output JSON
     output = {
@@ -304,10 +304,10 @@ def main():
         json.dump(output, f, separators=(",", ":"))
 
     size_kb = OUTPUT_JSON.stat().st_size / 1024
-    print(f"💾 JSON salvo: {OUTPUT_JSON}  ({size_kb:.1f} KB)")
+    print(f"[JSON] Salvo: {OUTPUT_JSON}  ({size_kb:.1f} KB)")
 
     # Compress video with ffmpeg if available
-    print("🎬 Tentando comprimir vídeo com ffmpeg...")
+    print("Tentando comprimir video com ffmpeg...")
     try:
         subprocess.run(
             [
@@ -322,13 +322,13 @@ def main():
             capture_output=True,
         )
         size_mb = OUTPUT_VIDEO.stat().st_size / (1024 * 1024)
-        print(f"✅ Vídeo comprimido: {OUTPUT_VIDEO}  ({size_mb:.1f} MB)")
+        print(f"[OK] Video comprimido: {OUTPUT_VIDEO}  ({size_mb:.1f} MB)")
     except (subprocess.CalledProcessError, FileNotFoundError):
         import shutil
         shutil.copy(str(INPUT_VIDEO), str(OUTPUT_VIDEO))
-        print(f"⚠️  ffmpeg não encontrado — vídeo copiado sem compressão: {OUTPUT_VIDEO}")
+        print(f"[AVISO] ffmpeg nao encontrado -- video copiado sem compressao: {OUTPUT_VIDEO}")
 
-    print("\n🏄 Pré-processamento concluído! Execute 'npm run dev' para testar.")
+    print("\n[DONE] Pre-processamento concluido! Execute 'npm run dev' para testar.")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,10 @@ public/wasm/
 # Old ONNX model (replaced by MediaPipe)
 public/models/yolov8n-pose.onnx
 
+# YOLO model files in root (exported artifacts)
+*.onnx
+*.pt
+
 # Raw input video (user-specific, not part of the project)
 Flip.mp4
 

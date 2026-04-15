@@ -40,9 +40,12 @@ export function drawSkeleton(
     ctx.stroke();
   }
 
-  // Draw joints
+  // Draw joints (skip face 0-10, pinky 17-18, thumb 21-22)
+  const SKIP_JOINTS = new Set([0,1,2,3,4,5,6,7,8,9,10,17,18,21,22]);
   ctx.fillStyle = joint;
-  for (const kp of keypoints) {
+  for (let i = 0; i < keypoints.length; i++) {
+    if (SKIP_JOINTS.has(i)) continue;
+    const kp = keypoints[i];
     if (!kp || kp.visibility < 0.3) continue;
     ctx.beginPath();
     ctx.arc(kp.x * scale.x, kp.y * scale.y, JOINT_RADIUS, 0, Math.PI * 2);

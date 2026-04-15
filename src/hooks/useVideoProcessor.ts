@@ -141,7 +141,7 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
 
       case "RESULT":
         setResult((prev) => ({
-          poseFrames: smoothPoseFrames(msg.poseFrames, 3),
+          poseFrames: smoothPoseFrames(msg.poseFrames, 2),
           phases: msg.phases,
           keyFrameImages: msg.keyFrameImages,
           allFrameImages: prev?.allFrameImages ?? [],
@@ -269,13 +269,10 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
 
 // ─── Frame extraction (main thread — requires DOM) ────────────────────────────
 
-const MAX_FRAMES = 150;
+const MAX_FRAMES = 600;
 const TARGET_SIZE = 640;
 
-async function extractFrames(
-  file: File,
-  onProgress: (current: number, total: number) => void,
-): Promise<{
+type ExtractResult = {
   frames: ImageBitmap[];
   allFrameImages: ImageData[];
   frameWidth: number;
@@ -284,7 +281,136 @@ async function extractFrames(
   originalHeight: number;
   durationMs: number;
   videoUrl: string;
-}> {
+};
+
+// Primary: requestVideoFrameCallback — fires for every decoded frame in order,
+// no keyframe alignment issues, exact timestamps.
+// Fallback: seek-based for browsers without rVFC support (Firefox).
+async function extractFrames(
+  file: File,
+  onProgress: (current: number, total: number) => void,
+): Promise<ExtractResult> {
+  if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+    return extractFramesRVFC(file, onProgress);
+  }
+  return extractFramesSeek(file, onProgress);
+}
+
+// ── requestVideoFrameCallback implementation ──────────────────────────────────
+
+function extractFramesRVFC(
+  file: File,
+  onProgress: (current: number, total: number) => void,
+): Promise<ExtractResult> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = TARGET_SIZE;
+    canvas.height = TARGET_SIZE;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 120));
+      const interval = duration / sampleCount;
+      const originalWidth = video.videoWidth;
+      const originalHeight = video.videoHeight;
+
+      const allFrameImages: ImageData[] = [];
+      let nextCaptureTime = 0;
+      let finished = false;
+
+      const onFrame = (_now: DOMHighResTimeStamp, metadata: { mediaTime: number }) => {
+        if (finished) return;
+
+        const t = metadata.mediaTime;
+
+        // Capture this frame if we've reached or passed the next target timestamp
+        if (t >= nextCaptureTime - interval * 0.4) {
+          ctx.drawImage(video, 0, 0, TARGET_SIZE, TARGET_SIZE);
+          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, TARGET_SIZE));
+          nextCaptureTime = allFrameImages.length * interval;
+          onProgress(allFrameImages.length, sampleCount);
+        }
+
+        if (allFrameImages.length >= sampleCount || t >= duration - interval * 0.5) {
+          finished = true;
+          video.pause();
+
+          // Convert all ImageData → ImageBitmap (zero-copy transfer to worker)
+          Promise.all(
+            allFrameImages.map((id) => createImageBitmap(new ImageData(id.data, id.width, id.height)))
+          ).then((bitmaps) => {
+            resolve({
+              frames: bitmaps,
+              allFrameImages,
+              frameWidth: TARGET_SIZE,
+              frameHeight: TARGET_SIZE,
+              originalWidth,
+              originalHeight,
+              durationMs: Math.round(duration * 1000),
+              videoUrl: url,
+            });
+          }).catch(reject);
+          return;
+        }
+
+        (video as any).requestVideoFrameCallback(onFrame);
+      };
+
+      // If the video ends before all frames are captured (can happen at 16x speed
+      // when the last rVFC fires just before the end condition threshold), resolve
+      // with whatever frames we have rather than hanging forever.
+      video.onended = () => {
+        if (!finished) {
+          finished = true;
+          Promise.all(
+            allFrameImages.map((id) => createImageBitmap(new ImageData(id.data, id.width, id.height)))
+          ).then((bitmaps) => {
+            resolve({
+              frames: bitmaps,
+              allFrameImages,
+              frameWidth: TARGET_SIZE,
+              frameHeight: TARGET_SIZE,
+              originalWidth,
+              originalHeight,
+              durationMs: Math.round(duration * 1000),
+              videoUrl: url,
+            });
+          }).catch(reject);
+        }
+      };
+
+      // playbackRate must stay at 1x: requestVideoFrameCallback fires once per
+      // display refresh (~60Hz). At 2x the video advances 2 frames per callback,
+      // so we'd only capture every other frame. At 16x we'd capture 1/16 of
+      // frames with huge gaps — MediaPipe temporal tracking breaks completely.
+      (video as any).requestVideoFrameCallback(onFrame);
+      video.playbackRate = 1;
+      video.play().catch(reject);
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("VIDEO_LOAD_ERROR"));
+    };
+
+    video.src = url;
+    video.load();
+  });
+}
+
+// ── Seek-based fallback (Firefox) ─────────────────────────────────────────────
+
+function extractFramesSeek(
+  file: File,
+  onProgress: (current: number, total: number) => void,
+): Promise<ExtractResult> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
@@ -299,7 +425,7 @@ async function extractFrames(
 
     video.onloadedmetadata = async () => {
       const duration = video.duration;
-      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 30));
+      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 120));
       const interval = duration / sampleCount;
       const frames: ImageBitmap[] = [];
       const allFrameImages: ImageData[] = [];
@@ -320,7 +446,6 @@ async function extractFrames(
         onProgress(i + 1, sampleCount);
       }
 
-      // Note: we do NOT revoke the URL here — it is kept alive for the scrubber video element
       resolve({
         frames,
         allFrameImages,
@@ -346,16 +471,8 @@ async function extractFrames(
 function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
   return new Promise((resolve, reject) => {
     if (Math.abs(video.currentTime - t) < 0.001) { resolve(); return; }
-    const onSeeked = () => {
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onErr);
-      resolve();
-    };
-    const onErr = () => {
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onErr);
-      reject(new Error("SEEK_ERROR"));
-    };
+    const onSeeked = () => { resolve(); };
+    const onErr = () => { reject(new Error("SEEK_ERROR")); };
     video.addEventListener("seeked", onSeeked, { once: true });
     video.addEventListener("error", onErr, { once: true });
     video.currentTime = t;

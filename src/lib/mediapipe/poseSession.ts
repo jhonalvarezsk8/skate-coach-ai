@@ -31,7 +31,7 @@ async function _createSession(): Promise<PoseSession> {
 
   const landmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
-      modelAssetPath: new URL("/models/pose_landmarker_lite.task", self.location.origin).href,
+      modelAssetPath: new URL("/models/pose_landmarker_full.task", self.location.origin).href,
       delegate: "GPU", // automatic fallback to CPU
     },
     runningMode: "VIDEO",

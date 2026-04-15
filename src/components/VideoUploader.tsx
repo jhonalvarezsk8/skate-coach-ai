@@ -73,8 +73,8 @@ export default function VideoUploader({ onVideoSelected, disabled = false }: Pro
             <p className="text-sm text-neutral-300 truncate max-w-xs">{fileName}</p>
           ) : (
             <>
-              <p className="text-neutral-300 font-medium">Arraste seu vídeo aqui</p>
-              <p className="text-neutral-500 text-sm">ou clique para selecionar</p>
+              <p className="text-neutral-300 font-medium">Toque ou arraste seu vídeo aqui</p>
+              <p className="text-neutral-500 text-sm">clique para selecionar da galeria</p>
               <p className="text-neutral-600 text-xs mt-1">MP4 · WebM · MOV · até 200 MB · máx. 30s</p>
             </>
           )}

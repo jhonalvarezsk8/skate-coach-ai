@@ -58,18 +58,16 @@ export const COCO_TO_BLAZEPOSE: Record<number, number> = {
   16: 28, // right_ankle
 };
 
-// Full BlazePose 33 skeleton connections for rich rendering
+// BlazePose 33 skeleton connections used for rendering
+// Face (0-10) excluded — not relevant for skate analysis
+// Hands: only index finger (19/20) kept; pinky (17/18) and thumb (21/22) excluded
 export const BLAZEPOSE_SKELETON_CONNECTIONS: [number, number][] = [
-  // Face
-  [0, 1], [1, 2], [2, 3], [3, 7],
-  [0, 4], [4, 5], [5, 6], [6, 8],
-  [9, 10],
   // Shoulders
   [11, 12],
-  // Left arm
-  [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
-  // Right arm
-  [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
+  // Left arm (shoulder → elbow → wrist → index finger)
+  [11, 13], [13, 15], [15, 19],
+  // Right arm (shoulder → elbow → wrist → index finger)
+  [12, 14], [14, 16], [16, 20],
   // Torso
   [11, 23], [12, 24], [23, 24],
   // Left leg
