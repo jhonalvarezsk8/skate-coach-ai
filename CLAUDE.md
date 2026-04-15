@@ -40,6 +40,9 @@ npm run build      # produção
 - **PoseLandmarker é singleton no worker** — criado uma vez em `poseSession.ts` e reutilizado. Em modo VIDEO, exige timestamps **estritamente crescentes ao longo de toda a sessão** (não apenas dentro de um vídeo). Por isso `globalLastTimestampMs` é variável de módulo. **Atenção**: o timestamp passado ao MediaPipe é diferente do timestamp armazenado no `PoseFrame` — o `PoseFrame` armazena o `rawTs` relativo ao vídeo (0..durationMs) para que o scrubber funcione corretamente.
 - **`next.config.ts` não é suportado** no Next.js 14 — usar `next.config.mjs`.
 - **Headers COEP/COOP obrigatórios** em `next.config.mjs` para habilitar `SharedArrayBuffer` (WASM multi-threading). Isso quebra iframes e imagens externas sem `crossorigin` — aceitável para este protótipo.
+- **Vídeo de referência NÃO pode usar `display:none`**: browsers mobile (especialmente iOS) não carregam metadados de vídeos com `display:none`, bloqueando o evento `loadedmetadata` e travando a extração de frames. Usar `position:absolute; opacity:0; top:-9999px; width:1px; height:1px` para esconder visualmente sem remover do fluxo de carregamento.
+- **Keypoints renderizados**: rosto (0–10), mindinho (17/18) e polegar (21/22) são **excluídos** do canvas — irrelevantes para análise de skate. A filtragem acontece em dois lugares: `BLAZEPOSE_SKELETON_CONNECTIONS` em `keypointMap.ts` (remove conexões) e `SKIP_JOINTS` em `skeletonRenderer.ts` (remove pontos). O MediaPipe continua detectando todos os 33 internamente.
+- **Layout mobile — PiP (Picture-in-Picture)**: em telas `< sm` (< 640px) `ComparisonView` exibe o canvas ativo em largura total e o inativo como overlay no canto inferior direito (`w-[32%]`, `absolute bottom-2 right-2`). O usuário toca no PiP para trocar qual vídeo está em destaque. No desktop (`sm+`) o grid 2 colunas é preservado. Ambos os canvases são sempre renderizados via `drawAll()` — a troca é puramente CSS/posicionamento, sem duplicar `ref`.
 
 ## Bundle size (real)
 
@@ -77,12 +80,23 @@ scripts/preprocess-reference.py       ← roda LOCALMENTE com MediaPipe Full Pyt
 
 ## Keypoints BlazePose (índices relevantes)
 
-| Índice | Anatomia |
-|--------|----------|
-| 11, 12 | left_shoulder, right_shoulder |
-| 23, 24 | left_hip, right_hip |
-| 25, 26 | left_knee, right_knee |
-| 27, 28 | left_ankle, right_ankle |
+O MediaPipe detecta 33 keypoints internamente. Apenas um subconjunto é **renderizado** no canvas:
+
+| Índice | Anatomia | Renderizado |
+|--------|----------|-------------|
+| 0–10 | Rosto (nariz, olhos, orelhas, boca) | ❌ excluído |
+| 11, 12 | left_shoulder, right_shoulder | ✅ |
+| 13, 14 | left_elbow, right_elbow | ✅ |
+| 15, 16 | left_wrist, right_wrist | ✅ |
+| 17, 18 | left_pinky, right_pinky | ❌ excluído |
+| 19, 20 | left_index, right_index | ✅ (indicador apenas) |
+| 21, 22 | left_thumb, right_thumb | ❌ excluído |
+| 23, 24 | left_hip, right_hip | ✅ |
+| 25, 26 | left_knee, right_knee | ✅ |
+| 27, 28 | left_ankle, right_ankle | ✅ |
+| 29–32 | calcanhar + ponta do pé | ✅ |
+
+Filtragem em `keypointMap.ts` (conexões) e `skeletonRenderer.ts` (`SKIP_JOINTS`).
 
 ## Fases do Ollie detectadas
 
@@ -101,17 +115,18 @@ Para ajustar thresholds, edite `src/lib/phases/phaseTypes.ts`.
 - Esqueleto do usuário: **vermelho** (`#ef4444`)
 - Esqueleto da referência: **verde** (`#22c55e`)
 - Overlay do board (heurística): **amarelo** (`#eab308`)
-- Fundo: frame original escurecido (overlay `rgba(0,0,0,0.35)` normal, `rgba(0,0,0,0.65)` no modo Esqueleto)
-- Botão de sincronização: **azul** (`bg-blue-600`) quando Sincronizado (DTW ativo), neutro quando Manual
+- Fundo: frame original escurecido (overlay `rgba(0,0,0,0.35)` normal; no modo Esqueleto, controlado pelo slider de opacidade — padrão 0.65, range 0.10–0.95)
+- Botão de sincronização: **azul** (`bg-blue-600`) antes de sincronizar, **verde** (`bg-green-700`) após sincronizar
 
 ## Modos da interface de comparação
 
 | Modo | Controle | Comportamento |
 |------|----------|---------------|
-| **Sincronizado** (padrão) | 1 scrubber azul | Avança ambos; user segue `alignmentMap[refFrame]` |
-| **Manual** | 2 scrubbers independentes (vermelho/verde) | Cada vídeo controlado separadamente |
-| **Reproduzir** | botão toggle | Loop contínuo; em modo sync, clock da referência |
-| **Esqueleto** | botão toggle | Overlay escurece para destacar o esqueleto |
+| **Scrubber** | 1 range input | Avança ambos os vídeos em sincronia (com crop se sincronizado) |
+| **Reproduzir** | botão toggle | Loop contínuo; slider de velocidade (0.1×–3×) aparece abaixo |
+| **Esqueleto** | botão toggle | Overlay escurece o fundo; slider de opacidade (10%–95%) aparece abaixo |
+| **Sincronizar manobra** | botão → fluxo | Entra em `uiMode="syncing"`: referência congela em 0.80s, usuário alinha seu vídeo |
+| **PiP (mobile)** | tap no canvas menor | Troca qual vídeo ocupa a tela inteira vs. canto inferior direito |
 
 ## Sincronização manual por ponto de referência
 
@@ -165,7 +180,10 @@ npm run build   # verifica erros de build
 vercel deploy --prod
 ```
 
-Checar: nenhum arquivo individual em `public/` deve ultrapassar 100 MB.
+- URL de produção: **https://skaia.vercel.app**
+- Cada `git push` para `master` pode ser seguido de `vercel deploy --prod` para atualizar
+- Checar: nenhum arquivo individual em `public/` deve ultrapassar 100 MB
+- O Vercel CLI está instalado globalmente (`vercel --version` → 51.x)
 
 ## Repositório GitHub
 
