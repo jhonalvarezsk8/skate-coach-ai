@@ -33,6 +33,9 @@ export default function ComparisonView({
   // ── UI mode ───────────────────────────────────────────────────────────────
   const [uiMode, setUIMode] = useState<UIMode>("comparison");
 
+  // ── Mobile PiP: which video is shown full-width ────────────────────────────
+  const [mobileActive, setMobileActive] = useState<"user" | "ref">("user");
+
   // ── Crop state ─────────────────────────────────────────────────────────────
   const [cropStart, setCropStart] = useState<number | null>(null);
   const [cropEnd,   setCropEnd]   = useState<number | null>(null);
@@ -268,6 +271,12 @@ export default function ComparisonView({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allFrameImages]);
+
+  // Redraw when mobile active panel changes (canvas offsetWidth changes)
+  useEffect(() => {
+    if (uiMode === "comparison") scheduleDraw(syncPosRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileActive]);
 
   useEffect(() => {
     if (refReady && uiMode === "comparison") scheduleDraw(syncPosRef.current);
@@ -589,20 +598,65 @@ export default function ComparisonView({
         )}
       </div>
 
-      {/* Side-by-side canvases */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-neutral-400 text-center">Seu Ollie</span>
+      {/* Canvas section — PiP on mobile, side-by-side on desktop */}
+
+      {/* Mobile: active video label + timestamp */}
+      <div className="sm:hidden flex justify-between items-center px-1 -mb-1">
+        <span className={`text-xs font-medium ${mobileActive === "user" ? "text-red-400" : "text-green-400"}`}>
+          {mobileActive === "user"
+            ? "Seu Ollie"
+            : <>Referência Pro{!refReady && <span className="ml-1 text-neutral-600">(carregando…)</span>}</>}
+        </span>
+        <span className="text-xs font-mono text-neutral-500">
+          {mobileActive === "user" ? formatTime(syncUserTimeSec) : formatTime(syncRefTimeSec)}
+        </span>
+      </div>
+
+      {/* Canvas container — relative on mobile (PiP anchor), grid on desktop */}
+      <div className="relative sm:grid sm:grid-cols-2 sm:gap-4">
+
+        {/* ── User canvas ── */}
+        <div
+          className={[
+            // desktop: always normal grid cell with flex col layout
+            "sm:relative sm:inset-auto sm:w-auto sm:z-auto sm:flex sm:flex-col sm:gap-1",
+            // mobile: active = full width, inactive = PiP overlay
+            mobileActive === "user"
+              ? "flex flex-col gap-1"
+              : "absolute bottom-2 right-2 w-[32%] z-10 cursor-pointer",
+          ].join(" ")}
+          onClick={mobileActive === "ref" ? () => setMobileActive("user") : undefined}
+        >
+          <span className="hidden sm:block text-xs text-neutral-400 text-center">Seu Ollie</span>
           <div
             className="relative w-full border-2 border-red-500 rounded-lg overflow-hidden bg-neutral-900"
             style={{ aspectRatio: `${videoAspect.w} / ${videoAspect.h}` }}
           >
             <canvas ref={userCanvasRef} className="absolute inset-0 w-full h-full" />
+            {/* PiP badge — shown only when this canvas is in the PiP slot */}
+            {mobileActive === "ref" && (
+              <div className="sm:hidden absolute top-1 left-1 flex items-center gap-0.5 bg-black/70 rounded px-1 py-0.5">
+                <span className="text-[10px] font-bold text-red-400">Você</span>
+                <span className="text-[10px] text-neutral-400">⇄</span>
+              </div>
+            )}
           </div>
-          <p className="text-xs font-mono text-center text-neutral-600">{formatTime(syncUserTimeSec)}</p>
+          <p className="hidden sm:block text-xs font-mono text-center text-neutral-600">
+            {formatTime(syncUserTimeSec)}
+          </p>
         </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-neutral-400 text-center">
+
+        {/* ── Reference canvas ── */}
+        <div
+          className={[
+            "sm:relative sm:inset-auto sm:w-auto sm:z-auto sm:flex sm:flex-col sm:gap-1",
+            mobileActive === "ref"
+              ? "flex flex-col gap-1"
+              : "absolute bottom-2 right-2 w-[32%] z-10 cursor-pointer",
+          ].join(" ")}
+          onClick={mobileActive === "user" ? () => setMobileActive("ref") : undefined}
+        >
+          <span className="hidden sm:block text-xs text-neutral-400 text-center">
             Referência Pro{!refReady && <span className="ml-1 text-neutral-600">(carregando…)</span>}
           </span>
           <div
@@ -610,8 +664,17 @@ export default function ComparisonView({
             style={{ aspectRatio: `${refAspect.w} / ${refAspect.h}` }}
           >
             <canvas ref={refCanvasRef} className="absolute inset-0 w-full h-full" />
+            {/* PiP badge */}
+            {mobileActive === "user" && (
+              <div className="sm:hidden absolute top-1 left-1 flex items-center gap-0.5 bg-black/70 rounded px-1 py-0.5">
+                <span className="text-[10px] font-bold text-green-400">Ref</span>
+                <span className="text-[10px] text-neutral-400">⇄</span>
+              </div>
+            )}
           </div>
-          <p className="text-xs font-mono text-center text-neutral-600">{formatTime(syncRefTimeSec)}</p>
+          <p className="hidden sm:block text-xs font-mono text-center text-neutral-600">
+            {formatTime(syncRefTimeSec)}
+          </p>
         </div>
       </div>
 
