@@ -14,8 +14,8 @@ async function generateWebMBuffer(
   const base64 = await page.evaluate(async () => {
     return new Promise<string>((resolve, reject) => {
       const canvas = document.createElement("canvas");
-      canvas.width = 320;
-      canvas.height = 240;
+      canvas.width = 240;
+      canvas.height = 320;
       const ctx = canvas.getContext("2d")!;
       const stream = canvas.captureStream(10);
 
@@ -45,7 +45,7 @@ async function generateWebMBuffer(
       const colors = ["#ef4444", "#22c55e", "#3b82f6", "#eab308"];
       const interval = setInterval(() => {
         ctx.fillStyle = colors[frame % colors.length];
-        ctx.fillRect(0, 0, 320, 240);
+        ctx.fillRect(0, 0, 240, 320);
         frame++;
       }, 100);
 

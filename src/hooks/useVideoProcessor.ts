@@ -320,8 +320,13 @@ function extractFramesRVFC(
       const interval = duration / sampleCount;
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
-      // Preserve aspect ratio — stretch to 640×640 distorts MediaPipe detection
-      const frameHeight = Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      // Scale so the longest side = TARGET_SIZE, preserving aspect ratio.
+      // Portrait (height > width): frameHeight=640, frameWidth=round(640*w/h)
+      // Landscape (width > height): frameWidth=640, frameHeight=round(640*h/w)
+      const isPortrait = originalHeight > originalWidth;
+      const frameWidth  = isPortrait ? Math.round(TARGET_SIZE * (originalWidth / originalHeight)) : TARGET_SIZE;
+      const frameHeight = isPortrait ? TARGET_SIZE : Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      canvas.width  = frameWidth;
       canvas.height = frameHeight;
 
       const allFrameImages: ImageData[] = [];
@@ -335,8 +340,8 @@ function extractFramesRVFC(
 
         // Capture this frame if we've reached or passed the next target timestamp
         if (t >= nextCaptureTime - interval * 0.4) {
-          ctx.drawImage(video, 0, 0, TARGET_SIZE, frameHeight);
-          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, frameHeight));
+          ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
+          allFrameImages.push(ctx.getImageData(0, 0, frameWidth, frameHeight));
           nextCaptureTime = allFrameImages.length * interval;
           onProgress(allFrameImages.length, sampleCount);
         }
@@ -352,7 +357,7 @@ function extractFramesRVFC(
             resolve({
               frames: bitmaps,
               allFrameImages,
-              frameWidth: TARGET_SIZE,
+              frameWidth,
               frameHeight,
               originalWidth,
               originalHeight,
@@ -378,7 +383,7 @@ function extractFramesRVFC(
             resolve({
               frames: bitmaps,
               allFrameImages,
-              frameWidth: TARGET_SIZE,
+              frameWidth,
               frameHeight,
               originalWidth,
               originalHeight,
@@ -434,16 +439,19 @@ function extractFramesSeek(
       const allFrameImages: ImageData[] = [];
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
-      // Preserve aspect ratio — stretch to 640×640 distorts MediaPipe detection
-      const frameHeight = Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      // Scale so the longest side = TARGET_SIZE, preserving aspect ratio.
+      const isPortrait = originalHeight > originalWidth;
+      const frameWidth  = isPortrait ? Math.round(TARGET_SIZE * (originalWidth / originalHeight)) : TARGET_SIZE;
+      const frameHeight = isPortrait ? TARGET_SIZE : Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      canvas.width  = frameWidth;
       canvas.height = frameHeight;
 
       for (let i = 0; i < sampleCount; i++) {
         const t = i * interval;
         try {
           await seekTo(video, t);
-          ctx.drawImage(video, 0, 0, TARGET_SIZE, frameHeight);
-          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, frameHeight));
+          ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
+          allFrameImages.push(ctx.getImageData(0, 0, frameWidth, frameHeight));
           const bitmap = await createImageBitmap(canvas);
           frames.push(bitmap);
         } catch {
@@ -455,7 +463,7 @@ function extractFramesSeek(
       resolve({
         frames,
         allFrameImages,
-        frameWidth: TARGET_SIZE,
+        frameWidth,
         frameHeight,
         originalWidth,
         originalHeight,

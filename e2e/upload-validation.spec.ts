@@ -140,18 +140,18 @@ test.describe("Validação de upload", () => {
     fs.unlinkSync(filePath);
   });
 
-  test("rejeita vídeo vertical (portrait)", async ({ page }) => {
-    // Generate a portrait WebM (240×320 — height > width) via MediaRecorder
-    const buffer = await generateWebMBuffer(page, 240, 320);
+  test("rejeita vídeo horizontal (landscape)", async ({ page }) => {
+    // Generate a landscape WebM (320×240 — width > height) via MediaRecorder
+    const buffer = await generateWebMBuffer(page, 320, 240);
 
     await page.locator('input[type="file"]').setInputFiles({
-      name: "vertical.webm",
+      name: "horizontal.webm",
       mimeType: "video/webm",
       buffer,
     });
 
     await expect(
-      page.getByText(/Use um vídeo horizontal/)
+      page.getByText(/Use um vídeo vertical/)
     ).toBeVisible({ timeout: 5000 });
   });
 
