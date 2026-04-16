@@ -19,8 +19,8 @@ Protótipo web de análise de manobras de skate. O usuário faz upload de um ví
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
-npm run build      # produção
+npm run dev -- --port 3002   # http://localhost:3002
+npm run build                # produção
 ```
 
 **Antes do primeiro uso**: certifique-se que os assets estão em `public/` (veja seção "Antes de rodar pela primeira vez").
@@ -31,19 +31,22 @@ npm run build      # produção
 - **YOLO-World descartado** — exigiria 80-140 MB de modelo + text encoder (CLIP), inviabilizando o Vercel free tier. Board detectado por **heurística geométrica** derivada dos ankles (índices 27/28 BlazePose).
 - **Processamento em batch** (não real-time): o vídeo inteiro é processado antes de exibir resultado. Progress bar com ETA informa o usuário.
 - **Extração de frames na thread principal**: `document.createElement('video')` não existe em Web Workers. A extração acontece em `useVideoProcessor.ts` (thread principal). Os frames são convertidos para `ImageBitmap[]` (transferáveis, zero-copy) e enviados ao worker via `postMessage`. O worker usa `OffscreenCanvas` para converter `ImageBitmap → ImageData` internamente.
-- **Todos os frames pré-extraídos como `ImageData[]`**: durante a extração, cada frame é capturado como `ImageData` (640×640) e armazenado em `ProcessingResult.allFrameImages`. O scrubber usa esses arrays diretamente — zero seeks, zero decode, fluência máxima.
+- **Apenas vídeos verticais (portrait) são aceitos**: `videoValidator.ts` rejeita vídeos com `width >= height` com erro `LANDSCAPE_VIDEO`. Isso elimina distorções no MediaPipe e garante que o layout mobile PiP funcione corretamente.
+- **Todos os frames pré-extraídos como `ImageData[]`**: durante a extração, cada frame é capturado como `ImageData` e armazenado em `ProcessingResult.allFrameImages`. O scrubber usa esses arrays diretamente — zero seeks, zero decode, fluência máxima.
 - **Frames de referência pré-extraídos em `ComparisonView`**: o vídeo de referência (`/reference/ollie-reference.mp4`) é um asset estático. Ao montar o componente, um useEffect extrai todos os frames via seek loop (usando centro de cada intervalo `t = (i + 0.5) / totalFrames * duration` para evitar frame preto no início e wrap no final) e os armazena em `refFrameImagesRef`. Enquanto carrega, o canvas mostra "Carregando referência…".
 - **Suavização temporal de poses** (`src/lib/skeleton/poseSmoothing.ts`): média ponderada por visibilidade sobre uma janela de frames vizinhos. Elimina glitches de detecção em frames isolados. Janela = 2 para o vídeo do usuário; janela = 2 para a referência (aplicada em `referenceLoader.ts` sobre os dados do JSON).
-- **Extração de frames a 120 fps** (`useVideoProcessor.ts`): `sampleCount = min(600, ceil(duration × 120))`. Usa `requestVideoFrameCallback` (primary, Chrome/Edge) com `playbackRate=1` e `video.onended` como safety handler; seek loop como fallback (Firefox). Frames extraídos como `ImageData[]` a 640×640 e convertidos para `ImageBitmap[]` para transfer zero-copy ao worker.
+- **Extração de frames a 120 fps** (`useVideoProcessor.ts`): `sampleCount = min(600, ceil(duration × 120))`. Usa `requestVideoFrameCallback` (primary, Chrome/Edge) com `playbackRate=1` e `video.onended` como safety handler; seek loop como fallback (Firefox). Frames extraídos preservando proporção: a dimensão mais longa é fixada em 640px — para vídeos verticais (portrait), `frameHeight=640` e `frameWidth=round(640×w/h)` (ex: 360×640 para 9:16). Convertidos para `ImageBitmap[]` para transfer zero-copy ao worker.
 - **Alinhamento DTW** (`src/lib/dtw/`): após o processamento, `ComparisonView` calcula automaticamente o alinhamento temporal entre o vídeo do usuário e a referência usando Dynamic Time Warping sobre features de pose (hipY, kneeAngle, ankleYDiff). Detecta o segmento de movimento no vídeo do usuário via velocidade das articulações, depois roda DTW para gerar `alignmentMap[refFrameIdx] = userFrameIdx`. Tudo roda na thread principal em < 5 ms.
 - **`MediaPipe` NÃO é bundled pelo webpack**. O bundle `mediapipe-vision.mjs` é copiado para `public/js/` pelo CopyPlugin e carregado no Worker via `import(/* webpackIgnore: true */ url)`. Arquivos `.wasm` ficam em `public/wasm/mediapipe/`. O Worker os acessa diretamente via HTTP.
-- **PoseLandmarker é singleton no worker** — criado uma vez em `poseSession.ts` e reutilizado. Em modo VIDEO, exige timestamps **estritamente crescentes ao longo de toda a sessão** (não apenas dentro de um vídeo). Por isso `globalLastTimestampMs` é variável de módulo. **Atenção**: o timestamp passado ao MediaPipe é diferente do timestamp armazenado no `PoseFrame` — o `PoseFrame` armazena o `rawTs` relativo ao vídeo (0..durationMs) para que o scrubber funcione corretamente.
+- **PoseLandmarker é singleton no worker** — criado uma vez em `poseSession.ts` e reutilizado. Em modo VIDEO, exige timestamps **estritamente crescentes ao longo de toda a sessão** (não apenas dentro de um vídeo). Por isso `globalLastTimestampMs` é variável de módulo. **Ao iniciar cada novo vídeo**, `globalLastTimestampMs += 5000` força o tracker a expirar e re-detectar do zero, evitando herdar a pose do vídeo anterior. **Atenção**: o timestamp passado ao MediaPipe é diferente do timestamp armazenado no `PoseFrame` — o `PoseFrame` armazena o `rawTs` relativo ao vídeo (0..durationMs) para que o scrubber funcione corretamente.
+- **Confidências do PoseLandmarker**: `minPoseDetectionConfidence=0.5`, `minPosePresenceConfidence=0.4`, `minTrackingConfidence=0.4`. Presence e tracking reduzidos para 0.4 para manter detecção em frames com movimento rápido ou iluminação variável.
 - **`next.config.ts` não é suportado** no Next.js 14 — usar `next.config.mjs`.
 - **Headers COEP/COOP obrigatórios** em `next.config.mjs` para habilitar `SharedArrayBuffer` (WASM multi-threading). Isso quebra iframes e imagens externas sem `crossorigin` — aceitável para este protótipo.
 - **Vídeo de referência NÃO pode usar `display:none`**: browsers mobile (especialmente iOS) não carregam metadados de vídeos com `display:none`, bloqueando o evento `loadedmetadata` e travando a extração de frames. Usar `position:absolute; opacity:0; top:-9999px; width:1px; height:1px` para esconder visualmente sem remover do fluxo de carregamento.
 - **Extração de frames da referência no iOS exige sequência específica**: iOS ignora `preload="auto"` e não dispara `seeked` sem que o vídeo tenha sido reproduzido antes. Sequência obrigatória em `ComparisonView.tsx`: (1) `video.load()` para forçar carregamento, (2) aguardar `loadedmetadata`, (3) `await video.play()` + `video.pause()` — permitido para vídeos muted sem gesto do usuário — para tornar o vídeo seekável, (4) seek loop com timeout de 800ms como fallback caso `seeked` não dispare.
 - **Keypoints renderizados**: rosto (0–10), mindinho (17/18) e polegar (21/22) são **excluídos** do canvas — irrelevantes para análise de skate. A filtragem acontece em dois lugares: `BLAZEPOSE_SKELETON_CONNECTIONS` em `keypointMap.ts` (remove conexões) e `SKIP_JOINTS` em `skeletonRenderer.ts` (remove pontos). O MediaPipe continua detectando todos os 33 internamente.
-- **Layout mobile — PiP (Picture-in-Picture)**: em telas `< sm` (< 640px) `ComparisonView` exibe o canvas ativo em largura total e o inativo como overlay no canto inferior direito (`w-[32%]`, `absolute bottom-2 right-2`). O usuário toca no PiP para trocar qual vídeo está em destaque. No desktop (`sm+`) o grid 2 colunas é preservado. Ambos os canvases são sempre renderizados via `drawAll()` — a troca é puramente CSS/posicionamento, sem duplicar `ref`.
+- **Layout mobile — PiP (Picture-in-Picture)**: em telas `< sm` (< 640px) `ComparisonView` exibe o canvas ativo em largura total e o inativo como overlay no canto inferior direito (`w-[32%]`, `absolute bottom-2 right-2`). O usuário toca no PiP para trocar qual vídeo está em destaque. No desktop (`sm+`) o grid 2 colunas é preservado. Ambos os canvases são sempre renderizados via `drawAll()` — a troca é puramente CSS/posicionamento, sem duplicar `ref`. **O modo "Sincronizar manobra" usa o mesmo layout PiP** — ao entrar no modo sync, `mobileActive` é resetado para `"user"` (vídeo do usuário em destaque para facilitar o scrubbing). O scrubber do usuário fica sempre visível abaixo do container, independente de qual vídeo está ativo.
+- **Esqueleto proporcional ao canvas**: `drawSkeleton()` recebe `sizeScale = Math.min(1, canvasWidth / 400)`. `JOINT_RADIUS` e `BONE_WIDTH` escalam com o canvas — no PiP (~120px), os pontos ficam ~1.5px em vez dos 5px fixos, evitando sobreposição visual.
 
 ## Bundle size (real)
 
@@ -171,7 +174,7 @@ Os módulos DTW (`src/lib/dtw/`) foram implementados mas o fluxo principal usa o
 
 4. Iniciar em desenvolvimento:
    ```bash
-   npm run dev
+   npm run dev -- --port 3002
    ```
 
 ## Deploy no Vercel
