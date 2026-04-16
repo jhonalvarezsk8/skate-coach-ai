@@ -202,6 +202,19 @@ Se o push falhar com 403 (credenciais erradas), atualizar a URL do remote:
 git remote set-url origin https://jhonalvarezsk8@github.com/jhonalvarezsk8/skate-coach-ai.git
 ```
 
+## Fluxo de trabalho Git
+
+Siga este padrão em toda implementação:
+
+1. Antes de começar qualquer funcionalidade, crie um branch:
+   `feature/nome-curto-da-funcionalidade`
+2. Faça commits pequenos e descritivos ao longo do trabalho,
+   não um commit gigante no final.
+3. Quando a funcionalidade estiver pronta e testada, avise
+   para eu aprovar o merge — não faça merge sozinho.
+4. Se uma mudança for correção de bug: `fix/nome-do-bug`
+5. Se for ajuste visual sem lógica nova: `style/nome-do-ajuste`
+
 ## Scopo v1
 
 Apenas **Ollie**. Kickflip e Heelflip ficam para v2. Sem autenticação, sem banco de dados, sem histórico de sessões, sem análise por IA (Claude API).

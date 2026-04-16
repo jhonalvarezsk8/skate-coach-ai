@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "preprocess-reference": "python scripts/preprocess-reference.py"
+    "preprocess-reference": "python scripts/preprocess-reference.py",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.34",
@@ -17,6 +20,7 @@
     "react-dom": "^18"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
