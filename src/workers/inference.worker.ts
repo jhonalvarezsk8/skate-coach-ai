@@ -85,9 +85,14 @@ async function handleProcessVideo(
     }
 
     // OffscreenCanvas to convert ImageBitmap → ImageData inside the worker
-    // Frames arrive as 640×640 (stretched for inference; phase detector uses this space)
     const canvas = new OffscreenCanvas(frameWidth, frameHeight);
     const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+
+    // Force the PoseLandmarker tracker to reset between videos.
+    // VIDEO mode tracks poses temporally — without a gap, the model "continues"
+    // tracking from the previous video. A 5 s jump exceeds the tracker's window
+    // (~500 ms), triggering a fresh detection for the first frame.
+    globalLastTimestampMs += 5000;
 
     // ── Run inference on each frame ─────────────────────────────────────────
     const poseFrames: PoseFrame[] = [];

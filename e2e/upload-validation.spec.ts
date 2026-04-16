@@ -1,7 +1,47 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import path from "path";
 import fs from "fs";
 import os from "os";
+
+/** Gera um vídeo WebM via Canvas+MediaRecorder no browser com dimensões customizáveis. */
+async function generateWebMBuffer(
+  page: Page,
+  width: number,
+  height: number
+): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    async ({ w, h }) => {
+      return new Promise<string>((resolve, reject) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d")!;
+        const stream = canvas.captureStream(10);
+        const recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8" });
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.onstop = async () => {
+          const blob = new Blob(chunks, { type: "video/webm" });
+          const buf = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let bin = "";
+          bytes.forEach((b) => (bin += String.fromCharCode(b)));
+          resolve(btoa(bin));
+        };
+        recorder.onerror = reject;
+        // Draw a few frames
+        let frame = 0;
+        const draw = () => { ctx.fillStyle = `hsl(${frame * 30},70%,50%)`; ctx.fillRect(0, 0, w, h); frame++; };
+        draw();
+        recorder.start();
+        const iv = setInterval(draw, 100);
+        setTimeout(() => { clearInterval(iv); recorder.stop(); }, 600);
+      });
+    },
+    { w: width, h: height }
+  );
+  return Buffer.from(base64, "base64");
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,6 +138,21 @@ test.describe("Validação de upload", () => {
     ).toBeVisible({ timeout: 3000 });
 
     fs.unlinkSync(filePath);
+  });
+
+  test("rejeita vídeo vertical (portrait)", async ({ page }) => {
+    // Generate a portrait WebM (240×320 — height > width) via MediaRecorder
+    const buffer = await generateWebMBuffer(page, 240, 320);
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "vertical.webm",
+      mimeType: "video/webm",
+      buffer,
+    });
+
+    await expect(
+      page.getByText(/Use um vídeo horizontal/)
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("área de upload muda visual no drag-over", async ({ page }) => {

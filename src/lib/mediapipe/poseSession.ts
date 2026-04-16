@@ -37,8 +37,8 @@ async function _createSession(): Promise<PoseSession> {
     runningMode: "VIDEO",
     numPoses: 1,
     minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minPosePresenceConfidence: 0.4,
+    minTrackingConfidence: 0.4,
   });
 
   return { landmarker, info: { provider: "mediapipe-wasm" } };

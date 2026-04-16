@@ -2,7 +2,8 @@ export type VideoValidationError =
   | "INVALID_FORMAT"
   | "VIDEO_TOO_LONG"
   | "VIDEO_TOO_SHORT"
-  | "FILE_TOO_LARGE";
+  | "FILE_TOO_LARGE"
+  | "PORTRAIT_VIDEO";
 
 export interface VideoValidationResult {
   ok: boolean;
@@ -45,6 +46,15 @@ export async function validateVideo(file: File): Promise<VideoValidationResult> 
       const duration = video.duration;
       const width = video.videoWidth;
       const height = video.videoHeight;
+
+      if (width <= height) {
+        resolve({
+          ok: false,
+          error: "PORTRAIT_VIDEO",
+          message: "Use um vídeo horizontal (paisagem). Vídeos verticais não são suportados.",
+        });
+        return;
+      }
 
       if (duration < MIN_DURATION_SECONDS) {
         resolve({

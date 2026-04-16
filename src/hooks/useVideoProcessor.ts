@@ -320,6 +320,9 @@ function extractFramesRVFC(
       const interval = duration / sampleCount;
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
+      // Preserve aspect ratio — stretch to 640×640 distorts MediaPipe detection
+      const frameHeight = Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      canvas.height = frameHeight;
 
       const allFrameImages: ImageData[] = [];
       let nextCaptureTime = 0;
@@ -332,8 +335,8 @@ function extractFramesRVFC(
 
         // Capture this frame if we've reached or passed the next target timestamp
         if (t >= nextCaptureTime - interval * 0.4) {
-          ctx.drawImage(video, 0, 0, TARGET_SIZE, TARGET_SIZE);
-          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, TARGET_SIZE));
+          ctx.drawImage(video, 0, 0, TARGET_SIZE, frameHeight);
+          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, frameHeight));
           nextCaptureTime = allFrameImages.length * interval;
           onProgress(allFrameImages.length, sampleCount);
         }
@@ -350,7 +353,7 @@ function extractFramesRVFC(
               frames: bitmaps,
               allFrameImages,
               frameWidth: TARGET_SIZE,
-              frameHeight: TARGET_SIZE,
+              frameHeight,
               originalWidth,
               originalHeight,
               durationMs: Math.round(duration * 1000),
@@ -376,7 +379,7 @@ function extractFramesRVFC(
               frames: bitmaps,
               allFrameImages,
               frameWidth: TARGET_SIZE,
-              frameHeight: TARGET_SIZE,
+              frameHeight,
               originalWidth,
               originalHeight,
               durationMs: Math.round(duration * 1000),
@@ -431,13 +434,16 @@ function extractFramesSeek(
       const allFrameImages: ImageData[] = [];
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
+      // Preserve aspect ratio — stretch to 640×640 distorts MediaPipe detection
+      const frameHeight = Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      canvas.height = frameHeight;
 
       for (let i = 0; i < sampleCount; i++) {
         const t = i * interval;
         try {
           await seekTo(video, t);
-          ctx.drawImage(video, 0, 0, TARGET_SIZE, TARGET_SIZE);
-          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, TARGET_SIZE));
+          ctx.drawImage(video, 0, 0, TARGET_SIZE, frameHeight);
+          allFrameImages.push(ctx.getImageData(0, 0, TARGET_SIZE, frameHeight));
           const bitmap = await createImageBitmap(canvas);
           frames.push(bitmap);
         } catch {
@@ -450,7 +456,7 @@ function extractFramesSeek(
         frames,
         allFrameImages,
         frameWidth: TARGET_SIZE,
-        frameHeight: TARGET_SIZE,
+        frameHeight,
         originalWidth,
         originalHeight,
         durationMs: Math.round(duration * 1000),
