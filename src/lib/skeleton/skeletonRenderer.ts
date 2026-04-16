@@ -18,13 +18,17 @@ export function drawSkeleton(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   keypoints: Keypoint[],
   color: SkeletonColor,
-  scale: { x: number; y: number } = { x: 1, y: 1 }
+  scale: { x: number; y: number } = { x: 1, y: 1 },
+  // sizeScale < 1 for small canvases (PiP). Normalised to ~400px full width.
+  sizeScale: number = 1,
 ): void {
   const { joint, bone } = COLORS[color];
+  const jointRadius = Math.max(1, JOINT_RADIUS * sizeScale);
+  const boneWidth   = Math.max(0.5, BONE_WIDTH * sizeScale);
 
   // Draw bones (connections)
   ctx.strokeStyle = bone;
-  ctx.lineWidth = BONE_WIDTH;
+  ctx.lineWidth = boneWidth;
   ctx.lineCap = "round";
 
   for (const [a, b] of SKELETON_CONNECTIONS) {
@@ -48,7 +52,7 @@ export function drawSkeleton(
     const kp = keypoints[i];
     if (!kp || kp.visibility < 0.3) continue;
     ctx.beginPath();
-    ctx.arc(kp.x * scale.x, kp.y * scale.y, JOINT_RADIUS, 0, Math.PI * 2);
+    ctx.arc(kp.x * scale.x, kp.y * scale.y, jointRadius, 0, Math.PI * 2);
     ctx.fill();
   }
 }

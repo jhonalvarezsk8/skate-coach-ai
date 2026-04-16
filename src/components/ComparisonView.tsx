@@ -162,8 +162,10 @@ export default function ComparisonView({
       const poseFrame = nearestPoseFrame(userPoseFrames, timeMs);
       setActiveUserFrame(poseFrame);
       if (poseFrame) {
+        const sizeScale = Math.min(1, uW / 400);
         drawSkeleton(ctx, poseFrame.keypoints, "user",
-          { x: uW / poseFrame.frameWidth, y: uH / poseFrame.frameHeight });
+          { x: uW / poseFrame.frameWidth, y: uH / poseFrame.frameHeight },
+          sizeScale);
       }
     } else {
       ctx.fillStyle = "#171717";
@@ -194,8 +196,10 @@ export default function ComparisonView({
         ? refFrameToPoseFrame(refRawFrame, srcW, srcH, rW, rH)
         : null;
       if (refPoseFrame) {
+        const sizeScale = Math.min(1, rW / 400);
         drawSkeleton(ctx, refPoseFrame.keypoints, "reference",
-          { x: rW / refPoseFrame.frameWidth, y: rH / refPoseFrame.frameHeight });
+          { x: rW / refPoseFrame.frameWidth, y: rH / refPoseFrame.frameHeight },
+          sizeScale);
       }
     } else {
       ctx.fillStyle = "#171717";
@@ -360,6 +364,7 @@ export default function ComparisonView({
   const handleEnterSync = () => {
     stopPlayback();
     setIsPlaying(false);
+    setMobileActive("user"); // user video front-and-center so they can scrub
     // Pre-position scrubber: if crop already set, show cropStart frame; else middle of video
     const prePos = cropStart !== null
       ? (cropStart + Math.round(syncTimeRef * userFps)) / Math.max(allFrameImages.length - 1, 1)
@@ -461,11 +466,29 @@ export default function ComparisonView({
           </p>
         </div>
 
-        {/* Side by side: user (scrubable) + reference (frozen) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* User video — scrubable */}
-          <div className="flex flex-col gap-2">
-            <span className="text-xs text-neutral-400 text-center">
+        {/* Mobile label */}
+        <div className="sm:hidden flex justify-between items-center px-1 -mb-1">
+          <span className={`text-xs font-medium ${mobileActive === "user" ? "text-red-400" : "text-green-400"}`}>
+            {mobileActive === "user"
+              ? "Seu vídeo — arraste até o pé de trás decolar"
+              : "Referência — congelada no ponto de sincronização"}
+          </span>
+        </div>
+
+        {/* Canvas container — PiP on mobile, side-by-side on desktop */}
+        <div className="relative sm:grid sm:grid-cols-2 sm:gap-4">
+
+          {/* User canvas */}
+          <div
+            className={[
+              "sm:relative sm:inset-auto sm:w-auto sm:z-auto sm:flex sm:flex-col sm:gap-2",
+              mobileActive === "user"
+                ? "flex flex-col gap-2"
+                : "absolute bottom-2 right-2 w-[32%] z-10 cursor-pointer",
+            ].join(" ")}
+            onClick={mobileActive === "ref" ? () => setMobileActive("user") : undefined}
+          >
+            <span className="hidden sm:block text-xs text-neutral-400 text-center">
               Seu vídeo — <span className="text-red-400">arraste até o pé de trás decolar</span>
             </span>
             <div
@@ -473,8 +496,15 @@ export default function ComparisonView({
               style={{ aspectRatio: `${videoAspect.w} / ${videoAspect.h}` }}
             >
               <canvas ref={userCanvasRef} className="absolute inset-0 w-full h-full" />
+              {mobileActive === "ref" && (
+                <div className="sm:hidden absolute top-1 left-1 flex items-center gap-0.5 bg-black/70 rounded px-1 py-0.5">
+                  <span className="text-[10px] font-bold text-red-400">Você</span>
+                  <span className="text-[10px] text-neutral-400">⇄</span>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            {/* Scrubber — desktop only (mobile scrubber always shows below container) */}
+            <div className="hidden sm:flex items-center gap-2">
               <span className="text-xs font-mono text-neutral-500 w-12 text-right">
                 {formatTime(userSyncTimeSec)}
               </span>
@@ -488,22 +518,19 @@ export default function ComparisonView({
                 {formatTime(userDuration)}
               </span>
             </div>
-            {/* Crop bounds warning */}
-            {syncStartsBeforeVideo && (
-              <p className="text-xs text-yellow-500 text-center">
-                Muito perto do início — avance {formatTime(Math.abs(syncCropStart) / userFps)} para frente
-              </p>
-            )}
-            {syncEndsAfterVideo && (
-              <p className="text-xs text-yellow-500 text-center">
-                Muito perto do fim — recue {formatTime((syncCropEnd - allFrameImages.length + 1) / userFps)}
-              </p>
-            )}
           </div>
 
-          {/* Reference — frozen at sync point */}
-          <div className="flex flex-col gap-2">
-            <span className="text-xs text-neutral-400 text-center">
+          {/* Reference canvas — frozen */}
+          <div
+            className={[
+              "sm:relative sm:inset-auto sm:w-auto sm:z-auto sm:flex sm:flex-col sm:gap-2",
+              mobileActive === "ref"
+                ? "flex flex-col gap-2"
+                : "absolute bottom-2 right-2 w-[32%] z-10 cursor-pointer",
+            ].join(" ")}
+            onClick={mobileActive === "user" ? () => setMobileActive("ref") : undefined}
+          >
+            <span className="hidden sm:block text-xs text-neutral-400 text-center">
               Referência — <span className="text-green-400">congelada no ponto de sincronização</span>
             </span>
             <div
@@ -511,11 +538,60 @@ export default function ComparisonView({
               style={{ aspectRatio: `${refAspect.w} / ${refAspect.h}` }}
             >
               <canvas ref={refCanvasRef} className="absolute inset-0 w-full h-full" />
+              {mobileActive === "user" && (
+                <div className="sm:hidden absolute top-1 left-1 flex items-center gap-0.5 bg-black/70 rounded px-1 py-0.5">
+                  <span className="text-[10px] font-bold text-green-400">Ref</span>
+                  <span className="text-[10px] text-neutral-400">⇄</span>
+                </div>
+              )}
             </div>
-            <p className="text-xs font-mono text-center text-neutral-600">
+            <p className="hidden sm:block text-xs font-mono text-center text-neutral-600">
               Congelado em {formatTime(syncTimeRef)}
             </p>
           </div>
+        </div>
+
+        {/* Mobile scrubber — always visible so user can scrub regardless of PiP state */}
+        <div className="sm:hidden flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-neutral-500 w-12 text-right">
+              {formatTime(userSyncTimeSec)}
+            </span>
+            <input
+              type="range" min="0" max="1" step="0.001"
+              value={userSyncPos}
+              onChange={handleUserSyncScrub}
+              className="flex-1 h-4 rounded-full appearance-none bg-neutral-700 cursor-pointer accent-red-500"
+            />
+            <span className="text-xs font-mono text-neutral-500 w-12">
+              {formatTime(userDuration)}
+            </span>
+          </div>
+          {/* Crop bounds warnings */}
+          {syncStartsBeforeVideo && (
+            <p className="text-xs text-yellow-500 text-center">
+              Muito perto do início — avance {formatTime(Math.abs(syncCropStart) / userFps)} para frente
+            </p>
+          )}
+          {syncEndsAfterVideo && (
+            <p className="text-xs text-yellow-500 text-center">
+              Muito perto do fim — recue {formatTime((syncCropEnd - allFrameImages.length + 1) / userFps)}
+            </p>
+          )}
+        </div>
+
+        {/* Desktop crop warnings */}
+        <div className="hidden sm:block">
+          {syncStartsBeforeVideo && (
+            <p className="text-xs text-yellow-500 text-center">
+              Muito perto do início — avance {formatTime(Math.abs(syncCropStart) / userFps)} para frente
+            </p>
+          )}
+          {syncEndsAfterVideo && (
+            <p className="text-xs text-yellow-500 text-center">
+              Muito perto do fim — recue {formatTime((syncCropEnd - allFrameImages.length + 1) / userFps)}
+            </p>
+          )}
         </div>
 
         {/* Actions */}
