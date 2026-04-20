@@ -3,17 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppState,
-  PhaseMap,
   PoseFrame,
-  PhaseName,
   WorkerOutMessage,
 } from "@/types";
-import { smoothPoseFrames } from "@/lib/skeleton/poseSmoothing";
+import { processPoseFrames } from "@/lib/skeleton/poseSmoothing";
 
 export interface ProcessingResult {
   poseFrames: PoseFrame[];
-  phases: PhaseMap;
-  keyFrameImages: Record<PhaseName, ImageData>;
+  rawPoseFrames: PoseFrame[];              // unprocessed (no outlier/interpolation/smoothing)
   allFrameImages: ImageData[];             // all decoded frames for instant scrubbing
   videoUrl: string;                        // createObjectURL — valid until reset()
   videoAspect: { w: number; h: number };   // original video dimensions for canvas sizing
@@ -44,8 +41,6 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Não foi possível ler o vídeo. Tente outro arquivo.",
   NO_PERSON_DETECTED:
     "Nenhum skatista detectado. Certifique-se que o skatista está visível no vídeo inteiro.",
-  PHASE_DETECTION_FAILED:
-    "Não foi possível identificar as fases do Ollie. O alinhamento automático foi usado.",
   WORKER_CRASHED:
     "Erro interno no processamento. Recarregue a página.",
   INVALID_FORMAT:
@@ -116,19 +111,17 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
         const stageLabels: Record<string, string> = {
           extracting: "Preparando frames",
           inferring: "Detectando poses",
-          detecting_phases: "Identificando fases",
         };
         const label = stageLabels[stage] ?? stage;
 
-        // Progress ranges: extracting 0-30%, inferring 30-85%, detecting 85-95%
+        // Progress ranges: extracting 0-30%, inferring 30-100%
         let progress = 0;
         if (stage === "extracting")      progress = total > 0 ? (current / total) * 30 : 0;
-        else if (stage === "inferring")  progress = 30 + (total > 0 ? (current / total) * 55 : 0);
-        else if (stage === "detecting_phases") progress = 85;
+        else if (stage === "inferring")  progress = 30 + (total > 0 ? (current / total) * 70 : 0);
 
         setState((prev) => ({
           ...prev,
-          status: stage === "extracting" ? "extracting" : stage === "inferring" ? "inferring" : "detecting_phases",
+          status: stage === "extracting" ? "extracting" : "inferring",
           progress: Math.round(progress),
           statusMessage:
             total > 1
@@ -141,9 +134,8 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
 
       case "RESULT":
         setResult((prev) => ({
-          poseFrames: smoothPoseFrames(msg.poseFrames, 2),
-          phases: msg.phases,
-          keyFrameImages: msg.keyFrameImages,
+          poseFrames: processPoseFrames(msg.poseFrames),
+          rawPoseFrames: msg.poseFrames,
           allFrameImages: prev?.allFrameImages ?? [],
           videoUrl: videoUrlRef.current ?? "",
           videoAspect: prev?.videoAspect ?? { w: 640, h: 640 },
@@ -197,7 +189,7 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
         progress: total > 0 ? Math.round((current / total) * 30) : 0,
         statusMessage: `Preparando frames… ${current}/${total}`,
       }));
-    }).then(({ frames, allFrameImages, frameWidth, frameHeight, originalWidth, originalHeight, durationMs, videoUrl }) => {
+    }).then(({ frames, allFrameImages, frameTimestampsMs, frameWidth, frameHeight, originalWidth, originalHeight, durationMs, videoUrl }) => {
       videoUrlRef.current = videoUrl;
 
       if (frames.length === 0) {
@@ -215,12 +207,12 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
       // Store aspect + allFrameImages so RESULT handler can attach them to the result
       setResult((prev) => prev
         ? { ...prev, allFrameImages, videoAspect: { w: originalWidth, h: originalHeight } }
-        : { poseFrames: [], phases: { setup: 0, pop: 0, flick: 0, catch: 0, landing: 0, usedFallback: true }, keyFrameImages: {} as Record<PhaseName, ImageData>, allFrameImages, videoUrl, videoAspect: { w: originalWidth, h: originalHeight } }
+        : { poseFrames: [], rawPoseFrames: [], allFrameImages, videoUrl, videoAspect: { w: originalWidth, h: originalHeight } }
       );
 
       // Transfer ImageBitmaps to worker (zero-copy)
       workerRef.current?.postMessage(
-        { type: "PROCESS_VIDEO", frames, frameWidth, frameHeight, durationMs },
+        { type: "PROCESS_VIDEO", frames, frameTimestampsMs, frameWidth, frameHeight, durationMs },
         frames as unknown as Transferable[],
       );
     }).catch(() => {
@@ -270,11 +262,12 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
 // ─── Frame extraction (main thread — requires DOM) ────────────────────────────
 
 const MAX_FRAMES = 600;
-const TARGET_SIZE = 640;
+const TARGET_SIZE = 800;
 
 type ExtractResult = {
   frames: ImageBitmap[];
   allFrameImages: ImageData[];
+  frameTimestampsMs: number[];
   frameWidth: number;
   frameHeight: number;
   originalWidth: number;
@@ -316,7 +309,7 @@ function extractFramesRVFC(
 
     video.onloadedmetadata = () => {
       const duration = video.duration;
-      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 120));
+      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 60));
       const interval = duration / sampleCount;
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
@@ -330,6 +323,7 @@ function extractFramesRVFC(
       canvas.height = frameHeight;
 
       const allFrameImages: ImageData[] = [];
+      const frameTimestampsMs: number[] = [];
       let nextCaptureTime = 0;
       let finished = false;
 
@@ -342,6 +336,7 @@ function extractFramesRVFC(
         if (t >= nextCaptureTime - interval * 0.4) {
           ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
           allFrameImages.push(ctx.getImageData(0, 0, frameWidth, frameHeight));
+          frameTimestampsMs.push(Math.round(t * 1000));
           nextCaptureTime = allFrameImages.length * interval;
           onProgress(allFrameImages.length, sampleCount);
         }
@@ -357,6 +352,7 @@ function extractFramesRVFC(
             resolve({
               frames: bitmaps,
               allFrameImages,
+              frameTimestampsMs,
               frameWidth,
               frameHeight,
               originalWidth,
@@ -383,6 +379,7 @@ function extractFramesRVFC(
             resolve({
               frames: bitmaps,
               allFrameImages,
+              frameTimestampsMs,
               frameWidth,
               frameHeight,
               originalWidth,
@@ -433,10 +430,11 @@ function extractFramesSeek(
 
     video.onloadedmetadata = async () => {
       const duration = video.duration;
-      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 120));
+      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 60));
       const interval = duration / sampleCount;
       const frames: ImageBitmap[] = [];
       const allFrameImages: ImageData[] = [];
+      const frameTimestampsMs: number[] = [];
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
       // Scale so the longest side = TARGET_SIZE, preserving aspect ratio.
@@ -452,6 +450,7 @@ function extractFramesSeek(
           await seekTo(video, t);
           ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
           allFrameImages.push(ctx.getImageData(0, 0, frameWidth, frameHeight));
+          frameTimestampsMs.push(Math.round(t * 1000));
           const bitmap = await createImageBitmap(canvas);
           frames.push(bitmap);
         } catch {
@@ -463,6 +462,7 @@ function extractFramesSeek(
       resolve({
         frames,
         allFrameImages,
+        frameTimestampsMs,
         frameWidth,
         frameHeight,
         originalWidth,
