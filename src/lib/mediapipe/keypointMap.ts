@@ -37,7 +37,7 @@ export const BLAZEPOSE_KEYPOINT_NAMES = [
 ] as const;
 
 // Mapping: COCO 17 index → BlazePose 33 index
-// Used to update phaseDetector, boardEstimator, feedbackPanel (which used COCO indices 11-16)
+// Used to update boardEstimator (which used COCO indices 11-16)
 export const COCO_TO_BLAZEPOSE: Record<number, number> = {
   0:  0,  // nose
   1:  2,  // left_eye

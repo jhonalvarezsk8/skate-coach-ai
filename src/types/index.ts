@@ -21,44 +21,11 @@ export interface PoseFrame {
   imageData?: ImageData;       // raw frame pixels (only retained for key frames)
 }
 
-// ─── Phases ───────────────────────────────────────────────────────────────────
-
-export type PhaseName = "setup" | "pop" | "flick" | "catch" | "landing";
-
-export const PHASE_NAMES: PhaseName[] = [
-  "setup", "pop", "flick", "catch", "landing",
-];
-
-export const PHASE_LABELS: Record<PhaseName, string> = {
-  setup:   "Setup",
-  pop:     "Pop",
-  flick:   "Flick",
-  catch:   "Catch",
-  landing: "Landing",
-};
-
-export interface PhaseMap {
-  setup: number;    // frame index
-  pop: number;
-  flick: number;
-  catch: number;
-  landing: number;
-  usedFallback: boolean;
-}
-
 // ─── Board ───────────────────────────────────────────────────────────────────
 
 export interface BoardKeypoints {
   nose: { x: number; y: number };
   tail: { x: number; y: number };
-}
-
-// ─── Alignment ───────────────────────────────────────────────────────────────
-
-export interface PhasePair {
-  phase: PhaseName;
-  userFrameIndex: number;
-  refFrameIndex: number;
 }
 
 // ─── Reference Data ──────────────────────────────────────────────────────────
@@ -72,7 +39,6 @@ export interface ReferenceFrameData {
 export interface ReferenceData {
   fps: number;
   totalFrames: number;
-  phases: Omit<PhaseMap, "usedFallback">;
   frames: ReferenceFrameData[];
   frameWidth?: number;   // original video width used during preprocessing
   frameHeight?: number;  // original video height used during preprocessing
@@ -87,7 +53,6 @@ export type AppStatus =
   | "validating"
   | "extracting"
   | "inferring"
-  | "detecting_phases"
   | "rendering"
   | "done"
   | "error";
@@ -111,21 +76,5 @@ export type WorkerInMessage =
 export type WorkerOutMessage =
   | { type: "READY"; provider: string }
   | { type: "PROGRESS"; stage: string; current: number; total: number; etaSeconds: number | null }
-  | { type: "PHASES_DETECTED"; phases: PhaseMap }
-  | { type: "RESULT"; poseFrames: PoseFrame[]; phases: PhaseMap; keyFrameImages: Record<PhaseName, ImageData> }
+  | { type: "RESULT"; poseFrames: PoseFrame[] }
   | { type: "ERROR"; code: string; message: string };
-
-// ─── Phase Comparison ────────────────────────────────────────────────────────
-
-export interface PhaseAngles {
-  kneeAngle: number;    // degrees
-  ankleDiff: number;    // pixels
-  hipHeight: number;    // pixels (normalized 0..1)
-}
-
-export interface PhaseComparison {
-  phase: PhaseName;
-  user: PhaseAngles;
-  reference: PhaseAngles;
-  feedbackKey: string | null;  // key into FEEDBACK_RULES
-}

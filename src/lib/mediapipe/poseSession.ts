@@ -34,11 +34,11 @@ async function _createSession(): Promise<PoseSession> {
       modelAssetPath: new URL("/models/pose_landmarker_full.task", self.location.origin).href,
       delegate: "GPU", // automatic fallback to CPU
     },
-    runningMode: "VIDEO",
+    runningMode: "IMAGE",
     numPoses: 1,
-    minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.4,
-    minTrackingConfidence: 0.4,
+    minPoseDetectionConfidence: 0.3,
+    minPosePresenceConfidence: 0.3,
+    minTrackingConfidence: 0.3,
   });
 
   return { landmarker, info: { provider: "mediapipe-wasm" } };

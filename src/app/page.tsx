@@ -37,7 +37,6 @@ export default function HomePage() {
   const isProcessing = [
     "extracting",
     "inferring",
-    "detecting_phases",
     "rendering",
   ].includes(state.status);
 
@@ -116,9 +115,8 @@ export default function HomePage() {
         <div className="w-full max-w-3xl flex flex-col gap-6">
           <ComparisonView
             userPoseFrames={result.poseFrames}
-            userKeyFrameImages={result.keyFrameImages}
             allFrameImages={result.allFrameImages}
-referenceData={referenceData}
+            referenceData={referenceData}
             videoUrl={result.videoUrl}
             videoAspect={result.videoAspect}
           />
