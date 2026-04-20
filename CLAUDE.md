@@ -2,7 +2,7 @@
 
 ## O que é este projeto
 
-Protótipo web de análise de manobras de skate. O usuário faz upload de um vídeo de Ollie, a aplicação detecta o esqueleto do skatista quadro a quadro (33 keypoints BlazePose), extrai 5 frames-chave por eventos físicos e exibe comparação lado a lado com um vídeo de referência pré-processado. **Tudo roda no browser — zero servidor de processamento.**
+Protótipo web de análise de manobras de skate. O usuário faz upload de um vídeo de Ollie, a aplicação detecta o esqueleto do skatista quadro a quadro (33 keypoints BlazePose) e exibe comparação lado a lado com um vídeo de referência pré-processado. **Tudo roda no browser — zero servidor de processamento.**
 
 ## Stack
 
@@ -34,12 +34,12 @@ npm run build                # produção
 - **Apenas vídeos verticais (portrait) são aceitos**: `videoValidator.ts` rejeita vídeos com `width >= height` com erro `LANDSCAPE_VIDEO`. Isso elimina distorções no MediaPipe e garante que o layout mobile PiP funcione corretamente.
 - **Todos os frames pré-extraídos como `ImageData[]`**: durante a extração, cada frame é capturado como `ImageData` e armazenado em `ProcessingResult.allFrameImages`. O scrubber usa esses arrays diretamente — zero seeks, zero decode, fluência máxima.
 - **Frames de referência pré-extraídos em `ComparisonView`**: o vídeo de referência (`/reference/ollie-reference.mp4`) é um asset estático. Ao montar o componente, um useEffect extrai todos os frames via seek loop (usando centro de cada intervalo `t = (i + 0.5) / totalFrames * duration` para evitar frame preto no início e wrap no final) e os armazena em `refFrameImagesRef`. Enquanto carrega, o canvas mostra "Carregando referência…".
-- **Suavização temporal de poses** (`src/lib/skeleton/poseSmoothing.ts`): média ponderada por visibilidade sobre uma janela de frames vizinhos. Elimina glitches de detecção em frames isolados. Janela = 2 para o vídeo do usuário; janela = 2 para a referência (aplicada em `referenceLoader.ts` sobre os dados do JSON).
-- **Extração de frames a 120 fps** (`useVideoProcessor.ts`): `sampleCount = min(600, ceil(duration × 120))`. Usa `requestVideoFrameCallback` (primary, Chrome/Edge) com `playbackRate=1` e `video.onended` como safety handler; seek loop como fallback (Firefox). Frames extraídos preservando proporção: a dimensão mais longa é fixada em 640px — para vídeos verticais (portrait), `frameHeight=640` e `frameWidth=round(640×w/h)` (ex: 360×640 para 9:16). Convertidos para `ImageBitmap[]` para transfer zero-copy ao worker.
+- **Pipeline de pós-processamento da pose do usuário** (`src/lib/skeleton/poseSmoothing.ts`): após o worker retornar `poseFrames`, o hook aplica `processPoseFrames()` no main thread antes de montar o `ProcessingResult`. Três etapas em ordem: **(1) `fillGaps`** — para cada keypoint, quando há run de frames com `visibility < 0.2` de tamanho ≤ 10 e existem frames válidos antes/depois, interpola e atribui `visibility = 0.6` (acima do threshold 0.5 do renderer) para o esqueleto continuar desenhado. Quando há 2 âncoras válidas de cada lado do gap (i-2, i-1, end, end+1), usa **spline Catmull-Rom** que segue a trajetória curva do joint; caso contrário, cai para interpolação linear entre as duas âncoras imediatas. Resolve "buracos" causados por oclusão temporária (mão sobre tornozelo) ou falha de detecção isolada — e elimina o "kink" reto que a interpolação linear deixava em movimentos curvos (ex: perna durante o pop). **(2) `rejectOutliers`** — para cada keypoint, calcula desvio de cada frame em relação ao ponto médio dos vizinhos; se `desvio > max(25 px, 3 × mediana)`, substitui pela posição interpolada (preserva visibility original). Resolve "saltos" espaciais (ex: pés pulando para posições aleatórias após queda). **(3) `smoothPoseFrames`** — suavização temporal velocidade-adaptativa: velocidade > 15 px → janela 0 (sem smooth, evita lag no pop); > 5 px → janela 1; caso contrário → janela 2. `rawPoseFrames` guarda a saída crua do worker para debug/comparação futura.
+- **Extração de frames a 60 fps** (`useVideoProcessor.ts`): `sampleCount = min(600, ceil(duration × 60))`. Cobre vídeos de iPhone 60 fps sem oversample desnecessário (vídeos nativos de 30 fps produziriam duplicatas a 120 fps). Usa `requestVideoFrameCallback` (primary, Chrome/Edge) com `playbackRate=1` e `video.onended` como safety handler; seek loop como fallback (Firefox). Frames extraídos preservando proporção: a dimensão mais longa é fixada em **800px** — para vídeos verticais (portrait), `frameHeight=800` e `frameWidth=round(800×w/h)` (ex: 450×800 para 9:16). Esse aumento (de 640 para 800) melhora a precisão do MediaPipe em joints de borda (calcanhares, mãos) ao custo de ~57% mais memória em `allFrameImages[]` (~260 MB num vídeo de 3s a 60fps). Convertidos para `ImageBitmap[]` para transfer zero-copy ao worker.
 - **Alinhamento DTW** (`src/lib/dtw/`): após o processamento, `ComparisonView` calcula automaticamente o alinhamento temporal entre o vídeo do usuário e a referência usando Dynamic Time Warping sobre features de pose (hipY, kneeAngle, ankleYDiff). Detecta o segmento de movimento no vídeo do usuário via velocidade das articulações, depois roda DTW para gerar `alignmentMap[refFrameIdx] = userFrameIdx`. Tudo roda na thread principal em < 5 ms.
 - **`MediaPipe` NÃO é bundled pelo webpack**. O bundle `mediapipe-vision.mjs` é copiado para `public/js/` pelo CopyPlugin e carregado no Worker via `import(/* webpackIgnore: true */ url)`. Arquivos `.wasm` ficam em `public/wasm/mediapipe/`. O Worker os acessa diretamente via HTTP.
-- **PoseLandmarker é singleton no worker** — criado uma vez em `poseSession.ts` e reutilizado. Em modo VIDEO, exige timestamps **estritamente crescentes ao longo de toda a sessão** (não apenas dentro de um vídeo). Por isso `globalLastTimestampMs` é variável de módulo. **Ao iniciar cada novo vídeo**, `globalLastTimestampMs += 5000` força o tracker a expirar e re-detectar do zero, evitando herdar a pose do vídeo anterior. **Atenção**: o timestamp passado ao MediaPipe é diferente do timestamp armazenado no `PoseFrame` — o `PoseFrame` armazena o `rawTs` relativo ao vídeo (0..durationMs) para que o scrubber funcione corretamente.
-- **Confidências do PoseLandmarker**: `minPoseDetectionConfidence=0.5`, `minPosePresenceConfidence=0.4`, `minTrackingConfidence=0.4`. Presence e tracking reduzidos para 0.4 para manter detecção em frames com movimento rápido ou iluminação variável.
+- **PoseLandmarker roda em IMAGE mode** — cada frame é detectado de forma 100% independente, sem tracking temporal. Isso elimina o lag/offset que o VIDEO mode causava com câmera em movimento (o tracker previa a posição baseado no frame anterior, gerando deslocamento visível). O trade-off é mais jitter entre frames, mas a posição em cada frame individual é mais precisa. O `PoseFrame` armazena o `rawTs` relativo ao vídeo (0..durationMs) para que o scrubber funcione corretamente.
+- **Confidências do PoseLandmarker**: `minPoseDetectionConfidence=0.3`, `minPosePresenceConfidence=0.3`, `minTrackingConfidence=0.3` (alinhadas com o script Python da referência, para evitar "buracos" em frames duvidosos — o gate visual final continua sendo `MIN_VISIBILITY=0.5` por joint no renderer).
 - **`next.config.ts` não é suportado** no Next.js 14 — usar `next.config.mjs`.
 - **Headers COEP/COOP obrigatórios** em `next.config.mjs` para habilitar `SharedArrayBuffer` (WASM multi-threading). Isso quebra iframes e imagens externas sem `crossorigin` — aceitável para este protótipo.
 - **Vídeo de referência NÃO pode usar `display:none`**: browsers mobile (especialmente iOS) não carregam metadados de vídeos com `display:none`, bloqueando o evento `loadedmetadata` e travando a extração de frames. Usar `position:absolute; opacity:0; top:-9999px; width:1px; height:1px` para esconder visualmente sem remover do fluxo de carregamento.
@@ -62,22 +62,19 @@ npm run build                # produção
 ## Arquivos críticos
 
 ```
-src/workers/inference.worker.ts       ← inferência MediaPipe + detecção de fases (recebe ImageBitmap[])
+src/workers/inference.worker.ts       ← inferência MediaPipe IMAGE mode (recebe ImageBitmap[])
 src/hooks/useVideoProcessor.ts        ← extração de frames rVFC/seek + ImageData[] + orquestra worker
-src/lib/mediapipe/poseSession.ts      ← singleton PoseLandmarker Full (GPU→CPU fallback)
+src/lib/mediapipe/poseSession.ts      ← singleton PoseLandmarker Full IMAGE mode (GPU→CPU fallback)
 src/lib/mediapipe/poseDetector.ts     ← PoseLandmarkerResult → PoseFrame (denormaliza coords)
 src/lib/mediapipe/keypointMap.ts      ← índices BlazePose 33 + BLAZEPOSE_SKELETON_CONNECTIONS
-src/lib/skeleton/poseSmoothing.ts     ← suavização temporal (média ponderada por visibilidade, janela=2)
-src/lib/skeleton/skeletonRenderer.ts  ← drawSkeleton(), drawBoard() Canvas 2D
+src/lib/skeleton/skeletonRenderer.ts  ← drawSkeleton(), drawBoard() Canvas 2D (threshold visibilidade 0.5)
 src/lib/skeleton/boardEstimator.ts    ← heurística ankle→board (índices 27/28 BlazePose)
-src/lib/phases/phaseDetector.ts       ← algoritmo das 5 fases + thresholds
-src/lib/phases/phaseTypes.ts          ← thresholds ajustáveis (constantes)
 src/lib/reference/referenceLoader.ts  ← fetch() do JSON + suavização da referência (janela=2)
 src/lib/dtw/featureExtractor.ts       ← extrai FeatureVec [hipY, kneeAngle, ankleYDiff] de PoseFrame ou ReferenceFrameData
 src/lib/dtw/motionDetector.ts         ← detecta segmento de movimento via velocidade de joints (hips/knees/ankles)
 src/lib/dtw/dtw.ts                    ← DTW clássico, retorna alignmentMap[refFrameIdx] = userSegmentIdx
 src/lib/dtw/align.ts                  ← pipeline completo: motionDetect → features → DTW → alignmentMap absoluto
-src/components/ComparisonView.tsx     ← modo Sincronizado (DTW) + modo Manual (2 barras independentes) + reprodução em loop
+src/components/ComparisonView.tsx     ← comparação lado a lado + sincronização manual + reprodução em loop
 next.config.mjs                       ← headers COEP/COOP + CopyPlugin MediaPipe WASM
 scripts/preprocess-reference.py       ← roda LOCALMENTE com MediaPipe Full Python SDK (120fps equiv), gera JSON
 ```
@@ -101,18 +98,6 @@ O MediaPipe detecta 33 keypoints internamente. Apenas um subconjunto é **render
 | 29–32 | calcanhar + ponta do pé | ✅ |
 
 Filtragem em `keypointMap.ts` (conexões) e `skeletonRenderer.ts` (`SKIP_JOINTS`).
-
-## Fases do Ollie detectadas
-
-| Fase | Critério físico | Threshold |
-|------|-----------------|-----------|
-| Setup | kneeAngle < 160° por ≥3 frames | `KNEE_BEND_DEGREES = 160` |
-| Pop | mínimo local de hipY + acc < -2.5 px/frame² | `ACC_POP_THRESHOLD = -2.5` |
-| Flick | máx diferença entre ankles (27/28) | `ANKLE_DIFF_RATIO = 0.08 × frameH` |
-| Catch | mínimo de hipY (ápice) + ankles nivelados | `ANKLE_LEVEL_RATIO = 0.04 × frameH` |
-| Landing | acc > +3.0 px/frame² | `ACC_LAND_THRESHOLD = 3.0` |
-
-Para ajustar thresholds, edite `src/lib/phases/phaseTypes.ts`.
 
 ## Sistema de cores
 
