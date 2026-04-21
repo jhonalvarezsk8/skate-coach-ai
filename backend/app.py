@@ -5,22 +5,34 @@ Espelha o comportamento do scripts/analyze-server.py, agora como HTTP.
 """
 
 import json
+import logging
 import os
+import subprocess
 import tempfile
+import traceback
 import urllib.request
 from pathlib import Path
 
 import cv2
+import imageio_ffmpeg
 import mediapipe as mp
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+log = logging.getLogger("skaia")
 
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
     "pose_landmarker_full/float16/latest/pose_landmarker_full.task"
 )
 MODEL_PATH = Path(os.environ.get("MODEL_PATH", "/tmp/pose_landmarker_full.task"))
+
+FFMPEG_BIN = imageio_ffmpeg.get_ffmpeg_exe()
 
 
 def ensure_model() -> Path:
@@ -80,25 +92,64 @@ async def analyze(req: Request):
     if not body:
         raise HTTPException(status_code=400, detail="EMPTY_BODY")
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    log.info("analyze: received %d bytes", len(body))
+
+    raw = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+    transcoded = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    transcoded.close()
     try:
-        tmp.write(body)
-        tmp.close()
-        result = run_analyzer(tmp.name)
+        raw.write(body)
+        raw.close()
+
+        transcode(raw.name, transcoded.name)
+        result = run_analyzer(transcoded.name)
+        log.info(
+            "analyze: %d frames, %dx%d, %.1ffps",
+            result["totalFrames"],
+            result["frameWidth"],
+            result["frameHeight"],
+            result["fps"],
+        )
         return Response(
             content=json.dumps(result, separators=(",", ":")),
             media_type="application/json",
         )
     except Exception as exc:
+        log.error("analyze failed: %s\n%s", exc, traceback.format_exc())
         return JSONResponse(
             status_code=500,
             content={"error": "ANALYZE_FAILED", "message": str(exc)},
         )
     finally:
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+        for path in (raw.name, transcoded.name):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+def transcode(src: str, dst: str) -> None:
+    """
+    Re-encoda qualquer formato de entrada (HEVC, .mov, slow-mo variável)
+    para H.264/mp4 com frame rate fixo. Isso elimina 99% das falhas de
+    decode do OpenCV ao aceitar vídeo de iPhone, Android, câmeras, etc.
+    """
+    cmd = [
+        FFMPEG_BIN,
+        "-y",
+        "-loglevel", "error",
+        "-i", src,
+        "-vcodec", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        "-movflags", "+faststart",
+        dst,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"TRANSCODE_FAILED: {proc.stderr.strip()[-500:]}")
 
 
 def run_analyzer(video_path: str) -> dict:

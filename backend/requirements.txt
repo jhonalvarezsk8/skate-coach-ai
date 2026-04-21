@@ -3,3 +3,4 @@ uvicorn[standard]==0.32.0
 python-multipart==0.0.12
 mediapipe==0.10.18
 opencv-python-headless==4.10.0.84
+imageio-ffmpeg==0.5.1
