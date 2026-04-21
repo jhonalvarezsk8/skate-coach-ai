@@ -128,24 +128,32 @@ async def analyze(req: Request):
                 pass
 
 
+MAX_DURATION_S = 10
+MAX_SHORTER_SIDE = 480
+MAX_FPS = 30
+
+
 def transcode(src: str, dst: str) -> None:
     """
     Re-encoda entrada (HEVC, .mov, slow-mo variável) para H.264/mp4
-    padronizado e já redimensionado:
-      - Lado menor <= 720px (MediaPipe roda em 256x256 internamente,
-        nada a ganhar acima disso).
-      - fps <= 30 (iPhone 60fps dobra memória/tempo sem ganho de pose).
-      - yuv420p + faststart pra decodificação confiável.
-    Isso mantém o pico de RAM dentro dos 512MB do plano free do Render.
+    padronizado, redimensionado e limitado em duração:
+      - lado menor <= 480px (MediaPipe roda 256x256 internamente).
+      - fps <= 30 (iPhone 60fps dobra memória/tempo sem ganho).
+      - duração <= 10s (ollie dura ~2-3s — cobre qualquer trick
+        com folga e evita estourar os 512MB do free tier do Render).
+      - yuv420p + faststart.
     """
     vf = (
-        "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(ih,iw),-2,min(720,ih))'"
-        ",fps=30"
+        f"scale='if(gt(iw,ih),-2,min({MAX_SHORTER_SIDE},iw))'"
+        f":'if(gt(ih,iw),-2,min({MAX_SHORTER_SIDE},ih))'"
+        f",fps={MAX_FPS}"
     )
     cmd = [
         FFMPEG_BIN,
         "-y",
         "-loglevel", "error",
+        "-ss", "0",
+        "-t", str(MAX_DURATION_S),
         "-i", src,
         "-vf", vf,
         "-vcodec", "libx264",
