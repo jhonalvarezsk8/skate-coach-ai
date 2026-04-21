@@ -130,15 +130,24 @@ async def analyze(req: Request):
 
 def transcode(src: str, dst: str) -> None:
     """
-    Re-encoda qualquer formato de entrada (HEVC, .mov, slow-mo variável)
-    para H.264/mp4 com frame rate fixo. Isso elimina 99% das falhas de
-    decode do OpenCV ao aceitar vídeo de iPhone, Android, câmeras, etc.
+    Re-encoda entrada (HEVC, .mov, slow-mo variável) para H.264/mp4
+    padronizado e já redimensionado:
+      - Lado menor <= 720px (MediaPipe roda em 256x256 internamente,
+        nada a ganhar acima disso).
+      - fps <= 30 (iPhone 60fps dobra memória/tempo sem ganho de pose).
+      - yuv420p + faststart pra decodificação confiável.
+    Isso mantém o pico de RAM dentro dos 512MB do plano free do Render.
     """
+    vf = (
+        "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(ih,iw),-2,min(720,ih))'"
+        ",fps=30"
+    )
     cmd = [
         FFMPEG_BIN,
         "-y",
         "-loglevel", "error",
         "-i", src,
+        "-vf", vf,
         "-vcodec", "libx264",
         "-preset", "ultrafast",
         "-crf", "23",
