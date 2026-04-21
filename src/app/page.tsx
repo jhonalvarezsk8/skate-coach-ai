@@ -57,7 +57,7 @@ export default function HomePage() {
         </p>
         {workerProvider && (
           <p className="text-neutral-600 text-xs mt-1">
-            Motor: {workerProvider === "webgpu" ? "WebGPU (rápido)" : "WASM"}
+            Análise no servidor
           </p>
         )}
       </div>
@@ -134,7 +134,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <p className="text-neutral-700 text-xs mt-auto">
-        Protótipo v1 · Apenas Ollie · Tudo roda no browser
+        Protótipo v1 · Apenas Ollie
       </p>
     </main>
   );

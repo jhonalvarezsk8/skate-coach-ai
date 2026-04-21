@@ -25,12 +25,23 @@ public/wasm/
 # Old ONNX model (replaced by MediaPipe)
 public/models/yolov8n-pose.onnx
 
+# MediaPipe model variants não usados
+public/models/pose_landmarker_heavy.task
+public/models/pose_landmarker_lite.task
+
 # YOLO model files in root (exported artifacts)
 *.onnx
 *.pt
 
 # Raw input video (user-specific, not part of the project)
 Flip.mp4
+
+# Playwright outputs
+playwright-report/
+test-results/
+
+# Vídeo de teste local (diagnóstico /debug)
+public/test/
 
 # OS
 .DS_Store

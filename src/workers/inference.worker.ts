@@ -14,7 +14,10 @@ import { mediapipeResultToPoseFrame } from "@/lib/mediapipe/poseDetector";
 
 let cancelled = false;
 
-// IMAGE mode: no global timestamp tracking needed (each frame is independent).
+// MediaPipe VIDEO mode requires strictly increasing timestamps across the entire
+// lifetime of the landmarker singleton — not just within a single video.
+// We keep a global counter so that each new video continues from where the last left off.
+let globalLastTimestampMs = -1;
 
 // ─── Main message handler ────────────────────────────────────────────────────
 
@@ -84,7 +87,13 @@ async function handleProcessVideo(
     const canvas = new OffscreenCanvas(frameWidth, frameHeight);
     const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
 
-    // ── Run inference on each frame (IMAGE mode — independent per frame) ───
+    // Force the PoseLandmarker tracker to reset between videos.
+    // VIDEO mode tracks poses temporally — without a gap, the model "continues"
+    // tracking from the previous video. A 5s jump exceeds the tracker's window
+    // (~500ms), triggering a fresh detection for the first frame.
+    globalLastTimestampMs += 5000;
+
+    // ── Run inference on each frame (VIDEO mode — temporal tracking) ───────
     const poseFrames: PoseFrame[] = [];
     const startTime = Date.now();
 
@@ -96,7 +105,13 @@ async function handleProcessVideo(
       const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
 
       const rawTs = frameTimestampsMs[i] ?? Math.round((i / frames.length) * durationMs);
-      const result = landmarker.detect(imageData);
+      // MediaPipe VIDEO mode requires strictly increasing timestamps across the
+      // entire landmarker lifetime (singleton). Advance the global counter so
+      // a second video never re-uses a timestamp the model has already seen.
+      const timestampMs = Math.max(globalLastTimestampMs + 1, rawTs);
+      globalLastTimestampMs = timestampMs;
+
+      const result = landmarker.detectForVideo(imageData, timestampMs);
       const poseFrame = mediapipeResultToPoseFrame(result, i, rawTs, frameWidth, frameHeight);
       poseFrames.push(poseFrame);
 

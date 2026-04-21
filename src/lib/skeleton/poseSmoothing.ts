@@ -27,19 +27,13 @@ export function processPoseFrames(
   opts: ProcessOptions = {},
 ): PoseFrame[] {
   const {
-    fillVisibilityThreshold = 0.2,
-    fillMaxGap = 10,
-    fillVisibility = 0.6,
-    outlierMinPixels = 25,
-    outlierFactor = 3,
-    outlierMinVisibility = 0.3,
     smoothMaxWin = 2,
     smoothMinVis = 0.25,
   } = opts;
 
-  const filled = fillGaps(frames, fillVisibilityThreshold, fillMaxGap, fillVisibility);
-  const cleaned = rejectOutliers(filled, outlierMinPixels, outlierFactor, outlierMinVisibility);
-  return smoothPoseFrames(cleaned, smoothMaxWin, smoothMinVis);
+  // Match the reference pipeline exactly: only velocity-adaptive temporal smoothing.
+  // fillGaps and rejectOutliers remain exported for ad-hoc use but are off by default.
+  return smoothPoseFrames(frames, smoothMaxWin, smoothMinVis);
 }
 
 // ─── Step 1: fill gaps via Catmull-Rom (with linear fallback) ───────────────
