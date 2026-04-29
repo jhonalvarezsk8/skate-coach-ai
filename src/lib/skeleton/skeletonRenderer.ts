@@ -13,15 +13,13 @@ const BONE_WIDTH = 2;
 const BOARD_COLOR = "rgba(234, 179, 8, 0.85)";
 const BOARD_LINE_WIDTH = 3;
 const BOARD_RADIUS = 6;
-// Minimum visibility to render a joint/bone. Higher = stricter: hides occluded
-// keypoints where MediaPipe guesses poorly (e.g. arm behind torso during rotation).
-const MIN_VISIBILITY = 0.5;
 
 export function drawSkeleton(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   keypoints: Keypoint[],
   color: SkeletonColor,
   scale: { x: number; y: number } = { x: 1, y: 1 },
+  // sizeScale < 1 for small canvases (PiP). Normalised to ~400px full width.
   sizeScale: number = 1,
 ): void {
   const { joint, bone } = COLORS[color];
@@ -36,7 +34,7 @@ export function drawSkeleton(
   for (const [a, b] of SKELETON_CONNECTIONS) {
     const kpA = keypoints[a];
     const kpB = keypoints[b];
-    if (!kpA || !kpB || kpA.visibility < MIN_VISIBILITY || kpB.visibility < MIN_VISIBILITY) {
+    if (!kpA || !kpB || kpA.visibility < 0.3 || kpB.visibility < 0.3) {
       continue;
     }
 
@@ -48,12 +46,11 @@ export function drawSkeleton(
 
   // Draw joints (skip face 0-10, pinky 17-18, thumb 21-22)
   const SKIP_JOINTS = new Set([0,1,2,3,4,5,6,7,8,9,10,17,18,21,22]);
+  ctx.fillStyle = joint;
   for (let i = 0; i < keypoints.length; i++) {
     if (SKIP_JOINTS.has(i)) continue;
     const kp = keypoints[i];
-    if (!kp || kp.visibility < MIN_VISIBILITY) continue;
-
-    ctx.fillStyle = joint;
+    if (!kp || kp.visibility < 0.3) continue;
     ctx.beginPath();
     ctx.arc(kp.x * scale.x, kp.y * scale.y, jointRadius, 0, Math.PI * 2);
     ctx.fill();

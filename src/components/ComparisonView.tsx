@@ -1,16 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { PoseFrame, ReferenceData } from "@/types";
+import type { PoseFrame, ReferenceData, PhaseName } from "@/types";
+import FeedbackPanel from "./FeedbackPanel";
 import { refFrameToPoseFrame } from "@/lib/reference/referenceLoader";
 import { drawSkeleton } from "@/lib/skeleton/skeletonRenderer";
 
 interface Props {
   userPoseFrames: PoseFrame[];
+  userKeyFrameImages: Record<PhaseName, ImageData>;
   allFrameImages: ImageData[];
   referenceData: ReferenceData;
   videoUrl: string;
   videoAspect: { w: number; h: number };
+}
+
+function nearestPoseFrame(frames: PoseFrame[], timeMs: number): PoseFrame | null {
+  if (frames.length === 0) return null;
+  return frames.reduce((best, f) =>
+    Math.abs(f.timestampMs - timeMs) < Math.abs(best.timestampMs - timeMs) ? f : best
+  );
 }
 
 type UIMode = "comparison" | "syncing";
@@ -90,6 +99,7 @@ export default function ComparisonView({
   const refOffscreenRef  = useRef<HTMLCanvasElement | null>(null);
 
   const [refAspect, setRefAspect] = useState<{ w: number; h: number }>({ w: 9, h: 16 });
+  const [activeUserFrame, setActiveUserFrame] = useState<PoseFrame | null>(null);
 
   const refFrameImagesRef = useRef<ImageData[]>([]);
   const [refReady, setRefReady] = useState(false);
@@ -148,7 +158,9 @@ export default function ComparisonView({
     if (imageData) {
       drawImageToCanvas(canvas, imageData, userOffscreenRef, uW, uH,
         highlight ? overlayAlphaRef.current.toString() : "0.35");
-      const poseFrame = userPoseFrames[frameIdx] ?? null;
+      const timeMs    = userPos * totalDurationMs;
+      const poseFrame = nearestPoseFrame(userPoseFrames, timeMs);
+      setActiveUserFrame(poseFrame);
       if (poseFrame) {
         const sizeScale = Math.min(1, uW / 400);
         drawSkeleton(ctx, poseFrame.keypoints, "user",
@@ -423,8 +435,8 @@ export default function ComparisonView({
   const syncRefTimeSec = syncPos * refDuration;
   const syncUserTimeSec = (() => {
     if (cropStart === null || cropEnd === null) return syncPos * userDuration;
-    const totalCropFrames = (cropEnd ?? 0) - (cropStart ?? 0) + 1;
-    const userFrameIdx = (cropStart ?? 0) + Math.round(syncPos * (totalCropFrames - 1));
+    const totalCropFrames = cropEnd - cropStart + 1;
+    const userFrameIdx = cropStart + Math.round(syncPos * (totalCropFrames - 1));
     return (userFrameIdx / Math.max(allFrameImages.length - 1, 1)) * userDuration;
   })();
 
@@ -708,7 +720,7 @@ export default function ComparisonView({
           ].join(" ")}
           onClick={mobileActive === "ref" ? () => setMobileActive("user") : undefined}
         >
-          <span className="hidden sm:block text-xs text-neutral-400 text-center">Seu Flip</span>
+          <span className="hidden sm:block text-xs text-neutral-400 text-center">Seu Ollie</span>
           <div
             className="relative w-full border-2 border-red-500 rounded-lg overflow-hidden bg-neutral-900"
             style={{ aspectRatio: `${videoAspect.w} / ${videoAspect.h}` }}
@@ -738,7 +750,7 @@ export default function ComparisonView({
           onClick={mobileActive === "user" ? () => setMobileActive("ref") : undefined}
         >
           <span className="hidden sm:block text-xs text-neutral-400 text-center">
-            Referência{!refReady && <span className="ml-1 text-neutral-600">(carregando…)</span>}
+            Referência Pro{!refReady && <span className="ml-1 text-neutral-600">(carregando…)</span>}
           </span>
           <div
             className="relative w-full border-2 border-green-500 rounded-lg overflow-hidden bg-neutral-900"
@@ -788,6 +800,14 @@ export default function ComparisonView({
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <video ref={refVideoRef} src="/reference/ollie-reference.mp4" preload="auto" muted playsInline className="hidden" />
 
+      {/* Feedback */}
+      {activeUserFrame && (
+        <FeedbackPanel
+          userFrames={userPoseFrames}
+          phases={{ setup: 0, pop: 0, flick: 0, catch: 0, landing: 0, usedFallback: true }}
+          activePhase="setup"
+        />
+      )}
     </div>
   );
 }

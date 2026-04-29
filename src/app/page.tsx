@@ -37,6 +37,7 @@ export default function HomePage() {
   const isProcessing = [
     "extracting",
     "inferring",
+    "detecting_phases",
     "rendering",
   ].includes(state.status);
 
@@ -57,7 +58,7 @@ export default function HomePage() {
         </p>
         {workerProvider && (
           <p className="text-neutral-600 text-xs mt-1">
-            Análise no servidor
+            Motor: {workerProvider === "webgpu" ? "WebGPU (rápido)" : "WASM"}
           </p>
         )}
       </div>
@@ -115,8 +116,9 @@ export default function HomePage() {
         <div className="w-full max-w-3xl flex flex-col gap-6">
           <ComparisonView
             userPoseFrames={result.poseFrames}
+            userKeyFrameImages={result.keyFrameImages}
             allFrameImages={result.allFrameImages}
-            referenceData={referenceData}
+referenceData={referenceData}
             videoUrl={result.videoUrl}
             videoAspect={result.videoAspect}
           />
@@ -134,7 +136,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <p className="text-neutral-700 text-xs mt-auto">
-        Protótipo v1 · Apenas Ollie
+        Protótipo v1 · Apenas Ollie · Tudo roda no browser
       </p>
     </main>
   );

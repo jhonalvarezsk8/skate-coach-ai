@@ -15,10 +15,9 @@ export async function loadReferenceData(): Promise<ReferenceData> {
   return _cached;
 }
 
-// Velocity-adaptive temporal smoothing on raw reference keypoints.
+// Temporal smoothing on raw reference keypoints (visibility-weighted window of ±2 frames).
 // Mirrors the smoothPoseFrames logic but operates on the ReferenceFrameData format.
-// Fast-moving joints get less smoothing to avoid lag; static joints get full smoothing.
-function smoothReferenceData(data: ReferenceData, maxWin = 2, minVis = 0.25): ReferenceData {
+function smoothReferenceData(data: ReferenceData, win = 2, minVis = 0.25): ReferenceData {
   const frames = data.frames;
   const n = frames.length;
   if (n < 3) return data;
@@ -31,9 +30,6 @@ function smoothReferenceData(data: ReferenceData, maxWin = 2, minVis = 0.25): Re
     const smoothedConf: number[] = [];
 
     for (let k = 0; k < kpCount; k++) {
-      // Compute adaptive window based on velocity of this keypoint
-      const win = refAdaptiveWindow(frames, i, k, maxWin, minVis);
-
       let sumX = 0, sumY = 0, sumW = 0;
 
       for (let j = Math.max(0, i - win); j <= Math.min(n - 1, i + win); j++) {
@@ -58,26 +54,6 @@ function smoothReferenceData(data: ReferenceData, maxWin = 2, minVis = 0.25): Re
   });
 
   return { ...data, frames: smoothed };
-}
-
-function refAdaptiveWindow(
-  frames: ReferenceData["frames"], i: number, kpIdx: number, maxWin: number, minVis: number,
-): number {
-  if (i === 0 || i === frames.length - 1) return maxWin;
-  const prev = frames[i - 1];
-  const next = frames[i + 1];
-  if (!prev?.keypoints?.[kpIdx] || !next?.keypoints?.[kpIdx]) return maxWin;
-  const prevVis = prev.confidence[kpIdx] ?? 0.9;
-  const nextVis = next.confidence[kpIdx] ?? 0.9;
-  if (prevVis < minVis || nextVis < minVis) return maxWin;
-
-  const dx = next.keypoints[kpIdx][0] - prev.keypoints[kpIdx][0];
-  const dy = next.keypoints[kpIdx][1] - prev.keypoints[kpIdx][1];
-  const velocity = Math.sqrt(dx * dx + dy * dy) / 2;
-
-  if (velocity > 15) return 0;
-  if (velocity > 5)  return 1;
-  return maxWin;
 }
 
 // Convert a ReferenceFrameData entry to a PoseFrame for rendering.

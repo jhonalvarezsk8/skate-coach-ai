@@ -32,13 +32,13 @@ async function _createSession(): Promise<PoseSession> {
   const landmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: new URL("/models/pose_landmarker_full.task", self.location.origin).href,
-      delegate: "GPU" as const, // automatic fallback to CPU
+      delegate: "GPU", // automatic fallback to CPU
     },
-    runningMode: "VIDEO" as const,
+    runningMode: "VIDEO",
     numPoses: 1,
-    minPoseDetectionConfidence: 0.3,
-    minPosePresenceConfidence: 0.3,
-    minTrackingConfidence: 0.3,
+    minPoseDetectionConfidence: 0.5,
+    minPosePresenceConfidence: 0.4,
+    minTrackingConfidence: 0.4,
   });
 
   return { landmarker, info: { provider: "mediapipe-wasm" } };
