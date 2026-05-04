@@ -6,8 +6,54 @@ import VideoUploader from "@/components/VideoUploader";
 import ProcessingPanel from "@/components/ProcessingPanel";
 import ComparisonView from "@/components/ComparisonView";
 import { loadReferenceData } from "@/lib/reference/referenceLoader";
-import type { ReferenceData } from "@/types";
+import type { ReferenceData, PoseFrame, PhaseMap } from "@/types";
 import { validateVideo } from "@/lib/video/videoValidator";
+
+// ── PROVISIONAL: export user video keypoints as JSON (debug only) ────────────
+// TODO: remove this export button once debugging is done
+function exportUserKeypointsJson(poseFrames: PoseFrame[], phases: PhaseMap) {
+  if (poseFrames.length === 0) return;
+
+  const first = poseFrames[0];
+  const last = poseFrames[poseFrames.length - 1];
+  const durationMs = last.timestampMs - first.timestampMs;
+  const fps = durationMs > 0
+    ? Math.round((poseFrames.length - 1) * 1000 / durationMs * 100) / 100
+    : 0;
+
+  const payload = {
+    fps,
+    totalFrames: poseFrames.length,
+    frameWidth: first.frameWidth,
+    frameHeight: first.frameHeight,
+    phases: {
+      setup: phases.setup,
+      pop: phases.pop,
+      flick: phases.flick,
+      catch: phases.catch,
+      landing: phases.landing,
+    },
+    frames: poseFrames.map((f, i) => ({
+      frame: i,
+      timestampMs: Math.round(f.timestampMs * 100) / 100,
+      keypoints: f.keypoints.map((k) => [
+        Math.round(k.x * 10) / 10,
+        Math.round(k.y * 10) / 10,
+      ]),
+      confidence: f.keypoints.map((k) => Math.round(k.visibility * 1000) / 1000),
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `user-video-kps-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export default function HomePage() {
   const { state, workerProvider, result, processVideo, cancel, reset } =
@@ -123,12 +169,20 @@ referenceData={referenceData}
             videoAspect={result.videoAspect}
           />
 
-          <div className="flex justify-center">
+          <div className="flex justify-center gap-3 flex-wrap">
             <button
               onClick={reset}
               className="px-6 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm transition-colors"
             >
               Analisar novo vídeo
+            </button>
+            {/* PROVISIONAL: debug export — remove later */}
+            <button
+              onClick={() => exportUserKeypointsJson(result.poseFrames, result.phases)}
+              className="px-6 py-2 rounded-lg bg-amber-700 hover:bg-amber-600 text-amber-50 text-sm transition-colors"
+              title="Baixa um JSON com os keypoints de cada frame do seu vídeo (apenas para debug)"
+            >
+              Exportar JSON (debug)
             </button>
           </div>
         </div>

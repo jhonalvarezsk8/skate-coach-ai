@@ -141,7 +141,7 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
 
       case "RESULT":
         setResult((prev) => ({
-          poseFrames: smoothPoseFrames(msg.poseFrames, 2),
+          poseFrames: smoothPoseFrames(msg.poseFrames, 2, 0.25),
           phases: msg.phases,
           keyFrameImages: msg.keyFrameImages,
           allFrameImages: prev?.allFrameImages ?? [],
@@ -269,8 +269,7 @@ export function useVideoProcessor(): UseVideoProcessorReturn {
 
 // ─── Frame extraction (main thread — requires DOM) ────────────────────────────
 
-const MAX_FRAMES = 600;
-const TARGET_SIZE = 640;
+const MAX_FRAMES = 1800;
 
 type ExtractResult = {
   frames: ImageBitmap[];
@@ -310,27 +309,22 @@ function extractFramesRVFC(
     video.playsInline = true;
 
     const canvas = document.createElement("canvas");
-    canvas.width = TARGET_SIZE;
-    canvas.height = TARGET_SIZE;
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
     video.onloadedmetadata = () => {
       const duration = video.duration;
-      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 120));
-      const interval = duration / sampleCount;
+      // Estimate sampleCount for progress bar (assume 60fps as ceiling).
+      // Actual capture grabs every decoded frame (native fps) up to MAX_FRAMES.
+      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 60));
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
-      // Scale so the longest side = TARGET_SIZE, preserving aspect ratio.
-      // Portrait (height > width): frameHeight=640, frameWidth=round(640*w/h)
-      // Landscape (width > height): frameWidth=640, frameHeight=round(640*h/w)
-      const isPortrait = originalHeight > originalWidth;
-      const frameWidth  = isPortrait ? Math.round(TARGET_SIZE * (originalWidth / originalHeight)) : TARGET_SIZE;
-      const frameHeight = isPortrait ? TARGET_SIZE : Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      // Native resolution — feed full-resolution frames into MediaPipe (matches reference pipeline).
+      const frameWidth  = originalWidth;
+      const frameHeight = originalHeight;
       canvas.width  = frameWidth;
       canvas.height = frameHeight;
 
       const allFrameImages: ImageData[] = [];
-      let nextCaptureTime = 0;
       let finished = false;
 
       const onFrame = (_now: DOMHighResTimeStamp, metadata: { mediaTime: number }) => {
@@ -338,15 +332,12 @@ function extractFramesRVFC(
 
         const t = metadata.mediaTime;
 
-        // Capture this frame if we've reached or passed the next target timestamp
-        if (t >= nextCaptureTime - interval * 0.4) {
-          ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
-          allFrameImages.push(ctx.getImageData(0, 0, frameWidth, frameHeight));
-          nextCaptureTime = allFrameImages.length * interval;
-          onProgress(allFrameImages.length, sampleCount);
-        }
+        // Capture every decoded frame (native fps) — matches reference Python pipeline.
+        ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
+        allFrameImages.push(ctx.getImageData(0, 0, frameWidth, frameHeight));
+        onProgress(allFrameImages.length, sampleCount);
 
-        if (allFrameImages.length >= sampleCount || t >= duration - interval * 0.5) {
+        if (allFrameImages.length >= MAX_FRAMES || t >= duration - 0.01) {
           finished = true;
           video.pause();
 
@@ -427,22 +418,20 @@ function extractFramesSeek(
     video.playsInline = true;
 
     const canvas = document.createElement("canvas");
-    canvas.width = TARGET_SIZE;
-    canvas.height = TARGET_SIZE;
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
     video.onloadedmetadata = async () => {
       const duration = video.duration;
-      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 120));
+      // Native fps fallback: assume 30fps when rVFC isn't available (Firefox).
+      const sampleCount = Math.min(MAX_FRAMES, Math.ceil(duration * 30));
       const interval = duration / sampleCount;
       const frames: ImageBitmap[] = [];
       const allFrameImages: ImageData[] = [];
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
-      // Scale so the longest side = TARGET_SIZE, preserving aspect ratio.
-      const isPortrait = originalHeight > originalWidth;
-      const frameWidth  = isPortrait ? Math.round(TARGET_SIZE * (originalWidth / originalHeight)) : TARGET_SIZE;
-      const frameHeight = isPortrait ? TARGET_SIZE : Math.round(TARGET_SIZE * (originalHeight / originalWidth));
+      // Native resolution — matches reference Python pipeline.
+      const frameWidth  = originalWidth;
+      const frameHeight = originalHeight;
       canvas.width  = frameWidth;
       canvas.height = frameHeight;
 
